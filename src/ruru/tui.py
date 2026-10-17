@@ -39,7 +39,7 @@ from textual.widgets import (
     TabPane,
 )
 
-from ruru import cli, ops
+from ruru import cli, logo, ops
 from ruru import projects as projmod
 from ruru.config import resolve_library
 from ruru.errors import OK, RuruError
@@ -269,7 +269,7 @@ class PaperScreen(Screen[None]):
 # --- the app -------------------------------------------------------------------------------------
 
 class RuruApp(App[None]):
-    TITLE = "ruru"
+    TITLE = logo.plain([logo.MINI]) + " ruru"
     CSS = """
     TabPane { padding: 0; }
     .pane { height: 1fr; }
@@ -280,6 +280,7 @@ class RuruApp(App[None]):
     Prompt, Choose { align: center middle; }
     .dialog { width: 70; height: auto; max-height: 20; border: thick $primary; background: $surface; padding: 1; }
     #project-list { width: 1fr; }
+    .empty { padding: 1 2; }
     """
     BINDINGS: ClassVar[list[BindingType]] = [
         Binding("q", "quit", "quit"),
@@ -327,14 +328,17 @@ class RuruApp(App[None]):
             with TabPane("Inbox", id="inbox"), Horizontal(classes="pane"):
                 yield Table(id="inbox-table", cursor_type="row", zebra_stripes=True)
                 with VerticalScroll(classes="detail"):
+                    yield Static(id="inbox-empty", classes="empty")
                     yield Markdown(id="inbox-detail")
             with TabPane("Library", id="library"), Horizontal(classes="pane"):
                 yield Table(id="library-table", cursor_type="row", zebra_stripes=True)
                 with VerticalScroll(classes="detail"):
+                    yield Static(id="library-empty", classes="empty")
                     yield Markdown(id="library-detail")
             with TabPane("Projects", id="projects"), Horizontal(classes="pane"):
                 yield OptionList(id="project-list")
                 with VerticalScroll(classes="detail"):
+                    yield Static(id="project-empty", classes="empty")
                     yield Markdown(id="project-detail")
         yield Footer()
 
@@ -398,21 +402,34 @@ class RuruApp(App[None]):
             return self.screen.key
         return self.query_one("#library-table", Table).current_key()
 
+    def _detail(self, tab: str, markdown: str | None, *empty: str) -> None:
+        """Show `markdown` in the tab's detail pane, or the mascot with the `empty` message."""
+        md = self.query_one(f"#{tab}-detail", Markdown)
+        placeholder = self.query_one(f"#{tab}-empty", Static)
+        if markdown is None:
+            placeholder.update(logo.rich_text(logo.SMALL, *empty))
+        else:
+            md.update(markdown)
+        placeholder.display = markdown is None
+        md.display = markdown is not None
+
     def show_details(self) -> None:
         item = self.current_item()
-        self.query_one("#inbox-detail", Markdown).update(
-            item_markdown(item) if item else "*Inbox empty. Press f to fetch.*")
+        self._detail("inbox", item_markdown(item) if item else None,
+                     "Inbox empty." if not self.filters["inbox"] else "Nothing matches the filter.",
+                     "f fetches the feeds.")
         key = self.query_one("#library-table", Table).current_key()
-        self.query_one("#library-detail", Markdown).update(
-            paper_markdown(self.lib.get(key), self.lib.has_pdf(key)) if key else "*No papers match.*")
+        self._detail("library", paper_markdown(self.lib.get(key), self.lib.has_pdf(key)) if key else None,
+                     "No papers match." if self.filters["library"] else "The library is empty.",
+                     "Keep something from the inbox, or `ruru add DOI`.")
         plist = self.query_one("#project-list", OptionList)
         names = list(projmod.load(self.lib.settings.projects))
         if plist.highlighted is not None and names:
             project = projmod.load(self.lib.settings.projects)[names[plist.highlighted]]
-            self.query_one("#project-detail", Markdown).update(project_markdown(self.lib, project))
+            self._detail("project", project_markdown(self.lib, project))
         else:
-            self.query_one("#project-detail", Markdown).update(
-                "*No projects yet: `ruru project add NAME --path … --bib … --tex …`*")
+            self._detail("project", None, "No projects yet.",
+                         "ruru project add NAME --path … --bib … --tex …")
 
     def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
         self.show_details()

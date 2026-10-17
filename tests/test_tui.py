@@ -70,6 +70,7 @@ def test_inbox_lists_items_and_shows_detail(lib):
         table = app.query_one("#inbox-table")
         assert table.row_count == 4
         assert table.current_key() == app.items[0].id
+        assert app.query_one("#inbox-detail").display and not app.query_one("#inbox-empty").display
         await pilot.press("j")
         assert table.cursor_row == 1
         await pilot.press("k")
@@ -288,6 +289,12 @@ def test_empty_library_views(tmp_path, run, monkeypatch):
     async def script(app, pilot):
         await pilot.press("y", "a", "t", "o", "2", "e", "s", "d", "t", "o", "3")
         assert app.query_one("#library-table").row_count == 0
+        for tab in ("inbox", "library", "project"):  # the mascot stands in for every empty pane
+            placeholder = app.query_one(f"#{tab}-empty")
+            assert placeholder.display and "◉" in placeholder.content.plain
+            assert not app.query_one(f"#{tab}-detail").display
+        assert "Inbox empty." in app.query_one("#inbox-empty").content.plain
+        assert app.title.startswith("(◉,◉) ruru")
     _, notices = drive(root, script)
     assert not [n for n in notices if n[0] == "error"]
 

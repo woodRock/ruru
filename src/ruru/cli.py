@@ -20,7 +20,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from ruru import __version__, feeds, http, model, ops
+from ruru import __version__, feeds, http, logo, model, ops
 from ruru import projects as projmod
 from ruru.bibtex import ENCODINGS, parse_bibtex, to_bibtex
 from ruru.config import config_path, resolve_library, secret, write_user_config
@@ -29,7 +29,7 @@ from ruru.fsutil import atomic_write
 from ruru.inbox import DECISIONS, Inbox, Item, UnknownItem, read_seen
 from ruru.library import Library
 from ruru.model import Paper
-from ruru.output import emit_json, item_json, item_line, paper_json, paper_line, style, warn
+from ruru.output import color_enabled, emit_json, item_json, item_line, paper_json, paper_line, style, warn
 from ruru.resolve import Resolver, apply_metadata, changes, openalex, parse_identifier
 from ruru.search import search
 
@@ -798,7 +798,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     parser = _Parser(
         prog="ruru",
-        description="A local, plain-text literature library with a feed inbox.",
+        description=logo.plain(logo.SMALL) + "\n\nA local, plain-text literature library with a feed inbox.",
         formatter_class=_Formatter,
         epilog=_examples(
             "ruru init ~/papers --email you@example.org",
@@ -1097,7 +1097,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     func: Handler | None = getattr(args, "func", None)
-    if func is None:
+    if func is None:  # bare `ruru`: the mascot and the help, on stderr (stdout stays data-only)
+        print(logo.banner(color=color_enabled(sys.stderr)), file=sys.stderr)
         parser.print_help(sys.stderr)
         return USAGE
     try:

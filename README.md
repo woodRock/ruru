@@ -1,8 +1,11 @@
+<p align="center"><img src="docs/ruru.svg" alt="ruru, a pixel morepork" width="260"></p>
+
 # ruru
 
 A local, plain-text literature library with a feed inbox, a terminal UI and an agent-friendly CLI.
 
-*Ruru* is the morepork, Aotearoa's native owl.
+*Ruru* is the morepork, Aotearoa's native owl. The mascot above is drawn in `ruru/logo.py`
+and shows up in the TUI and when you run `ruru` on its own.
 
 Papers arrive from feeds (arXiv, OpenAlex, Crossref, journal RSS), get triaged like email, live as
 Markdown files with YAML front matter in a git repository, and flow into each paper repo's `.bib`.

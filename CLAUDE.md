@@ -124,6 +124,10 @@ the user config is `~/.config/ruru/config.toml` on macOS too.
   (mtimes of `.git/index`, settings, seen.jsonl, papers/, inbox/ dirs) is polled every 2 s to reload
   on outside changes. `open_file`/`webbrowser.open`/`cli.edit_text` are the seams tests patch.
   Pilot tests in `tests/test_tui.py` (run synchronously via `asyncio.run`; no pytest plugin).
+- `logo.py`: the mascot, as rows of `(text, role)` with a 256-colour palette. `banner()`/`ansi()`
+  for the CLI (bare `ruru` prints it to stderr, colour only on a TTY), `rich_text()` for the TUI's
+  empty panes (Rich imported lazily), `python -m ruru.logo --svg docs/ruru.svg` regenerates the
+  README image. Change the art here only; everything else renders from it.
 - `wizard.py`: `ruru feeds wizard` (the only prompting command; refuses without a TTY). Injected
   `ask`/`say` for tests; every feed goes through `ops.add_feed`.
 - `search.py`: linear, accent-insensitive AND search with field weights.
