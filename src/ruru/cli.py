@@ -172,22 +172,39 @@ def cmd_add(args: argparse.Namespace) -> int:
     else:
         entries = [("", _manual_paper(args))]
     added: list[str] = []
+    labelled: list[str] = []
     with lib.transaction() as tx:
         for orig_key, paper in entries:
             paper.tags = sorted(set(paper.tags) | set(tags))
             paper.projects = sorted(set(paper.projects) | set(projects))
-            paper, new = lib.add(tx, paper, key=orig_key if args.keep_key else None)
+            try:
+                paper, new = lib.add(tx, paper, key=orig_key if args.keep_key else None)
+            except RuruError as e:  # e.g. --keep-key and the key belongs to another paper: skip just this one
+                warn(f"{orig_key or paper.title}: {e}; not added")
+                failures.append(e)
+                continue
             if new:
                 added.append(paper.key)
                 print(paper.key if args.quiet else f"added {paper.key}: {paper.title} ({paper.year or 'n.d.'})")
-            else:
-                warn(f"already in the library as {paper.key}")
-                if args.quiet:
-                    print(paper.key)
+                continue
+            alias = f" (this file calls it {orig_key})" if orig_key and orig_key != paper.key else ""
+            warn(f"already in the library as {paper.key}{alias}")
+            if not (set(tags) <= set(paper.tags) and set(projects) <= set(paper.projects)):
+                paper.tags = sorted(set(paper.tags) | set(tags))  # the labels asked for still apply
+                paper.projects = sorted(set(paper.projects) | set(projects))
+                tx.save(paper)
+                labelled.append(paper.key)
+            if args.quiet:
+                print(paper.key)
         details = f" (tags: {', '.join(tags)})" if tags else ""
+        details += f" (projects: {', '.join(projects)})" if projects else ""
         what = " ".join(added) if len(added) <= 5 else f"{len(added)} papers"
+        if labelled and not added:
+            what = f"labels on {len(labelled)} existing paper(s)"
+        elif labelled:
+            what += f" + labels on {len(labelled)} existing"
         tx.message = f"ruru: add {what}{details}"
-    return _exit_code(failures, len(args.ident))
+    return _exit_code(failures, len(args.ident) if args.ident else len(entries))
 
 
 def cmd_list(args: argparse.Namespace) -> int:

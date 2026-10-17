@@ -79,7 +79,7 @@ def test_add_keep_key_and_stdin(lib, run, monkeypatch):
     assert run("add", "--bib", "-", "--keep-key", "-q").out == "vandermaaten2008\nnunez2025\n"
     monkeypatch.setattr(sys, "stdin", io.StringIO(SAMPLE_BIB.replace("10.5555/FAKE.1", "10.1/other")
                                                   .replace("Visualizing", "Seeing")))
-    assert run("add", "--bib", "-", "--keep-key").code == cli.USAGE  # vandermaaten2008 taken
+    assert run("add", "--bib", "-", "--keep-key").code == cli.PARTIAL  # vandermaaten2008 taken: skipped
 
 
 @pytest.mark.parametrize("args", [
@@ -276,3 +276,31 @@ def test_rekey_warns_about_projects(stocked, run, tmp_path):
     run("cite", "p", "wood2026joint")
     r = run("rekey", "wood2026joint", "wood2026x")
     assert "p: replace \\cite{wood2026joint} with \\cite{wood2026x}" in r.err
+
+
+def test_import_merges_labels_and_skips_key_clashes(lib, run, tmp_path):
+    run("project", "add", "a", "--path", str(tmp_path), "--bib", "a.bib")
+    run("project", "add", "b", "--path", str(tmp_path), "--bib", "b.bib")
+    (tmp_path / "a.bib").write_text(SAMPLE_BIB, encoding="utf-8")
+    assert run("add", "--bib", str(tmp_path / "a.bib"), "--keep-key", "-p", "a", "-q").code == 0
+    # The same papers again for project b, one under another key, plus a key clash with a different paper.
+    other = SAMPLE_BIB.replace("{nunez2025,", "{nunez2025survey,") + (
+        "\n@misc{vandermaaten2008, title = {A different paper entirely}, year = {2001}}\n"
+        "@misc{fresh2020, title = {Fresh}, year = {2020}}\n")
+    other = other.replace("@article{vandermaaten2008,", "@article{vdm2008,", 1)
+    (tmp_path / "b.bib").write_text(other, encoding="utf-8")
+    r = run("add", "--bib", str(tmp_path / "b.bib"), "--keep-key", "-p", "b")
+    assert r.code == cli.PARTIAL
+    assert "already in the library as nunez2025 (this file calls it nunez2025survey)" in r.err
+    assert "vandermaaten2008: key 'vandermaaten2008' is already taken; not added" in r.err
+    assert "added fresh2020" in r.out
+    assert json.loads(run("show", "nunez2025", "--json").out)["projects"] == ["a", "b"]
+    assert json.loads(run("show", "vandermaaten2008", "--json").out)["projects"] == ["a", "b"]
+    assert git_log(lib)[0] == "ruru: add fresh2020 + labels on 2 existing (projects: b)"
+    import subprocess
+    assert subprocess.run(["git", "-C", str(lib), "status", "--porcelain"], capture_output=True,
+                          text=True).stdout == ""
+    # Again: nothing new, labels already there, no commit.
+    before = git_log(lib)
+    run("add", "--bib", str(tmp_path / "a.bib"), "--keep-key", "-p", "a")
+    assert git_log(lib) == before
