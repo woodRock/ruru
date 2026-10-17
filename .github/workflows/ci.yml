@@ -1,0 +1,96 @@
+name: CI
+
+# Every push and pull request: lint, type-check, the whole test suite with coverage, and a
+# non-editable install checked for a Textual-free core. Tests never touch the network: every HTTP
+# response is a recorded fixture under tests/fixtures/.
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: '3.11'
+  RUFF_VERSION: '0.17.0'
+  MYPY_VERSION: '2.4.0'
+
+jobs:
+  lint:
+    name: Lint (ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install ruff==$RUFF_VERSION
+      - run: ruff check --output-format=github .
+
+  types:
+    name: Types (mypy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - run: pip install -e ".[dev,tui]" mypy==$MYPY_VERSION
+      - run: mypy
+
+  tests:
+    name: Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - run: pip install -e ".[dev,tui]"
+      # ruru commits to the library's git repo; CI runners have no identity configured.
+      - run: |
+          git config --global user.name "ruru CI"
+          git config --global user.email "ci@example.invalid"
+      - name: Run tests with coverage
+        run: python -m coverage run -m pytest --junitxml=junit.xml
+      - name: Coverage report (fails under the threshold in pyproject.toml)
+        if: always()
+        run: |
+          python -m coverage report --format=markdown >> "$GITHUB_STEP_SUMMARY"
+          python -m coverage report
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: test-results
+          path: junit.xml
+
+  package:
+    name: Package (non-editable install, no Textual)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      # A clean venv without the [tui] extra, imported from outside the checkout: catches files
+      # missing from the built package and any eager Textual import.
+      - run: python -m venv /tmp/venv
+      - run: /tmp/venv/bin/pip install .
+      - name: Import and run from outside the repository
+        working-directory: /tmp
+        run: |
+          /tmp/venv/bin/python -c "import ruru.cli, sys; print(ruru.__version__); assert 'textual' not in sys.modules"
+          /tmp/venv/bin/ruru --help
+          /tmp/venv/bin/ruru tui; test $? -eq 1

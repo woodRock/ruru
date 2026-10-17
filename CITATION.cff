@@ -1,0 +1,16 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "ruru: a local, plain-text literature library with a feed inbox and an agent-friendly CLI"
+type: software
+version: 0.1.0.dev0
+license: MIT
+repository-code: "https://github.com/woodRock/ruru"
+authors:
+  - family-names: Wood
+    given-names: Jesse
+keywords:
+  - reference manager
+  - literature
+  - BibTeX
+  - command-line
+  - agents

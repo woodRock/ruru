@@ -1,0 +1,90 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ruru"
+version = "0.1.0.dev0"
+description = "A local, plain-text literature library with a feed inbox, a terminal UI and an agent-friendly CLI"
+requires-python = ">=3.11"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Jesse Wood" }]
+# The core never imports Textual: `ruru tui` imports it lazily from the [tui] extra.
+dependencies = [
+    "httpx>=0.27,<1",
+    "feedparser>=6,<7",
+    "pyyaml>=6,<7",
+    "bibtexparser>=1.4,<2",  # v2's API differs from v1's
+    "platformdirs>=4,<5",
+]
+
+[project.optional-dependencies]
+tui = ["textual>=1.0"]
+dev = ["pytest>=8", "coverage>=7", "ruff", "mypy", "types-PyYAML"]
+
+[project.scripts]
+ruru = "ruru.cli:main"
+
+[project.urls]
+Repository = "https://github.com/woodRock/ruru"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+ruru = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+markers = [
+    "slow: end-to-end runs in a temporary library (deselect with -m \"not slow\")",
+    "tui: Textual pilot tests (skipped without the [tui] extra)",
+]
+
+[tool.coverage.run]
+source = ["ruru"]
+omit = ["*/ruru/__main__.py"]
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 90
+exclude_also = [
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+]
+
+[tool.ruff]
+line-length = 115
+target-version = "py311"
+
+[tool.ruff.lint]
+# Same families as align-bench.
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "C4", "RUF"]
+ignore = [
+    "E702",     # short `a = …; b = …` statements
+    "E731",     # small named lambdas
+    "B905",     # zip() without strict=
+    "C408",     # dict(...) calls
+    "RUF001",   # –, —, ā etc. in strings and comments are intended
+    "RUF002",
+    "RUF003",
+    "RUF005",   # list concatenation
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["ruru", "conftest"]
+
+[tool.mypy]
+python_version = "3.11"
+files = ["src/ruru"]
+ignore_missing_imports = true
+check_untyped_defs = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true
+
+[tool.ruff.format]
+quote-style = "preserve"

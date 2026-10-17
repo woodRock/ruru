@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+/build/
+/dist/
+.venv/
+
+# OS
+.DS_Store
+
+# Test and tool artefacts
+.coverage
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+junit.xml
