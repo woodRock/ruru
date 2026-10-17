@@ -45,7 +45,36 @@ expanded under `nohup`).
 
 ## Architecture
 
-M0 (scaffold) done. Planned milestones: M1 library core, M2 resolvers, M3 feeds and inbox, M4
-projects (`cite`, `check`), M5 skill and docs, M6 TUI. Update this section as each lands.
+M0–M1 done. Next: M2 resolvers (DOI/arXiv/OpenAlex/Crossref, `add ID|URL|TITLE`, `refresh`,
+`pdf --fetch`), M3 feeds and inbox (incl. `ruru feeds wizard`), M4 projects (`ruru project add`,
+`cite`, `check`), M5 skill and docs, M6 TUI. Update this section as each lands.
 
-- `cli.py`: argparse entry point (`ruru = ruru.cli:main`), exit-code constants, `_examples()` epilogs.
+Decisions beyond the brief (Jesse, 2026-10-17): `bib_encoding = "ascii"` by default (he uses Overleaf
+with classic BibTeX styles); feeds are set up by an interactive `ruru feeds wizard`, the one command
+that prompts (it refuses without a TTY and is built on the non-interactive `ruru feeds add`); a
+library starts with no projects, added with `ruru project add`. `platformdirs` is not a dependency:
+the user config is `~/.config/ruru/config.toml` on macOS too.
+
+- `errors.py`: exit codes and `RuruError` subclasses carrying them (`UnknownKey`, `LockHeld`, …).
+- `text.py`: `unaccent`, `words`, `norm_title`, `fold` (search), `split_name` (particles go with the
+  family name).
+- `keys.py`: `base_key(authors, year, title)`, `unique_key(base, taken)`.
+- `model.py`: `Paper` dataclass; `loads`/`dumps` (front matter in `FIELDS` order, lists and `ids` in
+  flow style, unknown keys kept, body verbatim); body sections `get_notes`/`set_notes`/
+  `get_agent_notes`/`append_agent_note`; `norm_id`, `same_paper` (the dedupe rule).
+- `bibtex.py`: `to_bibtex(paper, encoding)` (fixed field order, title words with inner capitals
+  braced, `ascii` = LaTeX escapes), `parse_bibtex(text)` (bibtexparser v1 → `Paper`s).
+- `fsutil.py`: `atomic_write`, `library_lock` (flock on `.ruru/lock`, waits `$RURU_LOCK_TIMEOUT`
+  seconds, default 10, then `LockHeld`).
+- `gitops.py`: `commit(root, paths, message)` stages and commits exactly those paths.
+- `config.py`: user config + library resolution, `Settings` from `ruru.toml`, `settings_template`.
+- `library.py`: `Library` (`open`, `init`, `get`, `papers`, `find_duplicate`, `add`, `set_status`) and
+  `Transaction` (`with lib.transaction(msg) as tx:` locks, `tx.save(paper)` writes paper.md +
+  paper.bib, commits touched files at the end; set `tx.message` inside to describe the change).
+- `search.py`: linear, accent-insensitive AND search with field weights.
+- `output.py`: colour (`style`), `paper_json` (the docs/json.md schema), `paper_line`.
+- `cli.py`: argparse; one `cmd_*` per command; `common`/`write`/`read` parent parsers give every
+  subcommand `-L`, `--no-commit`, `-q`, `--json`. `main` maps `RuruError` to exit codes.
+
+Tests: `tests/conftest.py` isolates every test (`RURU_CONFIG`, git identity, short lock timeout) and
+provides `run(*argv) -> Result(code, out, err)` and a `lib` fixture (an initialised library).

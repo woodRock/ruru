@@ -17,7 +17,6 @@ dependencies = [
     "feedparser>=6,<7",
     "pyyaml>=6,<7",
     "bibtexparser>=1.4,<2",  # v2's API differs from v1's
-    "platformdirs>=4,<5",
 ]
 
 [project.optional-dependencies]
