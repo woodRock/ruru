@@ -150,6 +150,7 @@ def test_feed_validation():
 
 def test_feed_describe():
     assert feeds.Feed("x", "openalex", filter="f", search="s").describe() == 'openalex: f + "s"'
+    assert feeds.Feed("x", "openalex", search='"a b" OR c').describe() == 'openalex: "a b" OR c'  # no extra quotes
     assert feeds.Feed("x", "crossref", issn="1", title="J").describe() == "crossref: 1  (J)"
 
 

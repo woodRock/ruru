@@ -71,8 +71,8 @@ class Feed:
         return {k: v for k, v in asdict(self).items() if v is not None}
 
     def describe(self) -> str:
-        what = self.query or self.issn or self.url or " + ".join(
-            x for x in (self.filter, f'"{self.search}"' if self.search else None) if x)
+        search = (self.search if '"' in self.search else f'"{self.search}"') if self.search else None
+        what = self.query or self.issn or self.url or " + ".join(x for x in (self.filter, search) if x)
         return f"{self.kind}: {what}" + (f"  ({self.title})" if self.title else "")
 
 
