@@ -62,4 +62,28 @@ Every front matter field of `paper.md`, in this order, then two derived fields.
 | `suggestion` | object \| null | `{"action": "keep" \| "skip" \| "later", "reason": string, "by": string, "date": date}` |
 | `path` | string | relative to the library root |
 
-`check` reports and `export json` are documented here as they land (M4).
+| `ruru project --json` | array of `{"name", "path", "bib", "tex": [string], "bib_encoding": string \| null}` (`path` as written in ruru.toml) |
+| `ruru check TARGET --json` | the check report below; exit 2 if `issue_count` > 0 |
+
+## Check report
+
+```json
+{
+  "project": "joint-align",            // null for `ruru check FILE.tex`
+  "tex": ["/…/main.tex", "/…/sections/intro.tex"],   // every file read, \\input/\\include followed
+  "bib": "/…/references.bib",          // null if none was found
+  "cited": 34,                          // distinct keys cited
+  "issues": {
+    "missing": [{"key": "smith2020x", "in_library": false}],   // cited, not in the bib file
+    "unused": ["old2019y"],             // in ruru's managed block, never cited
+    "kept_unused": ["zhang2024z"],      // papers with this project in `projects`, never cited
+    "stale": ["wood2026joint"],         // managed entry differs from what the library generates now
+    "duplicates": [["a2020x", "b2020x"]] // the same paper under two keys anywhere in the bib file
+  },
+  "issue_count": 5,
+  "warnings": ["tex file not found: /…/appendix.tex"],
+  "fixed": {"cited": [], "regenerated": [], "pruned": []}   // only with --fix / --prune; {} otherwise
+}
+```
+
+`export json` is documented here when it lands (M5).

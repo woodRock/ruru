@@ -11,7 +11,7 @@ Agents such as Claude Code use exactly the same CLI.
 > **Status:** early development. Working: the library (`init`, `add`, `list`, `show`, `search`,
 > `tag`, `status`, `note`), metadata resolution (`add DOI|ARXIV|URL|"TITLE"`, `refresh`, `pdf`,
 > `find`), and feeds with an inbox (`feeds`, `fetch`, `inbox`, `keep`, `later`, `skip`, `suggest`).
-> Projects (`cite`, `check`) and the TUI come next.
+> and paper repos (`project`, `cite`, `check`). The TUI comes next.
 
 ## Install
 
@@ -93,6 +93,34 @@ scheduled task.
 
 To look for papers outside your feeds: `ruru find retention time alignment gc-ms` (OpenAlex), then
 `ruru add` the id it prints.
+
+## Paper repos: `cite` and `check`
+
+A project is a paper repository, e.g. a local clone of an Overleaf project (Overleaf → Menu → Git,
+or GitHub sync). ruru writes its `.bib` but never commits there: you review and push.
+
+```bash
+ruru project add joint-align --path ~/Desktop/joint-align --bib references.bib --tex main.tex
+ruru cite joint-align wood2026joint guillevic2021automated
+ruru check joint-align                     # exit 2 if anything needs attention: usable in CI
+ruru check joint-align --fix               # cite missing keys you have; regenerate stale entries
+ruru check joint-align --prune             # drop managed entries nothing cites
+```
+
+`cite` writes entries between two marker lines and never touches anything outside them:
+
+```
+% >>> ruru managed — do not edit inside this block (ruru cite / ruru check --fix)
+@article{wood2026joint, …}
+% <<< ruru managed
+```
+
+The block is regenerated from your library each time, so metadata fixes (a preprint since
+published, a corrected author) reach every paper. `check` follows `\input`/`\include` and reads
+`\cite`, `\citep`, `\citet`, `\parencite`, `\textcite` and friends, and reports keys cited but
+missing from the bib (and whether ruru has them), managed entries never cited, papers kept for the
+project but never cited, entries out of date with the library, and the same paper under two keys.
+`ruru check FILE.tex` works without a project, using the tex file's `\bibliography`.
 
 ## Adding papers and keeping them current
 

@@ -202,7 +202,7 @@ def test_find(lib, run, net):
 
 
 def test_end_to_end(tmp_path, run, net, monkeypatch):
-    """init → feeds add → fetch → inbox --json → suggest → keep → show --bib, asserting on git."""
+    """init → feeds add → fetch → inbox --json → suggest → keep → cite (check --fix) → check, on git."""
     root = tmp_path / "e2e"
     monkeypatch.setenv("RURU_LIBRARY", str(root))
     assert run("init", "--email", "test@example.invalid").code == 0
@@ -212,7 +212,15 @@ def test_end_to_end(tmp_path, run, net, monkeypatch):
     assert run("suggest", first["id"], "keep", "--reason", "toxicology methods").code == 0
     key = run("keep", first["id"], "-t", "tox", "-q").out.strip()
     assert run("show", key, "--bib").out.startswith(f"@article{{{key},")
-    assert git_log(root) == [f"ruru: keep {key} (tags: tox)", f"ruru: suggest keep {first['id']} (agent)",
+    paper = tmp_path / "paper"
+    paper.mkdir()
+    (paper / "main.tex").write_text(f"As in \\cite{{{key}}}.\n")
+    assert run("project", "add", "tox-review", "--path", str(paper), "--bib", "refs.bib", "--tex", "main.tex").code == 0
+    assert run("check", "tox-review").code == cli.NO_MATCH  # cited, not yet in refs.bib
+    assert run("check", "tox-review", "--fix").code == cli.OK
+    assert f"@article{{{key}," in (paper / "refs.bib").read_text()
+    assert git_log(root) == [f"ruru: cite tox-review {key}", "ruru: project add tox-review",
+                             f"ruru: keep {key} (tags: tox)", f"ruru: suggest keep {first['id']} (agent)",
                              "ruru: fetch 3 new (jat 3)", "ruru: feeds add jat", "ruru: init"]
     status = subprocess.run(["git", "-C", str(root), "status", "--porcelain"], capture_output=True,
                             text=True).stdout

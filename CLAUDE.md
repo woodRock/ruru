@@ -45,7 +45,7 @@ expanded under `nohup`).
 
 ## Architecture
 
-M0–M3 done. Next: M4 projects (`ruru project add`, `cite`, `check`), M5 skill and docs, M6 TUI.
+M0–M4 done. Next: M5 skill, docs, `export bib|json`; M6 TUI.
 Update this section as each lands.
 
 Additions beyond the brief: `ruru find` (OpenAlex search for papers not yet in the library), `ruru show`
@@ -97,6 +97,13 @@ the user config is `~/.config/ruru/config.toml` on macOS too.
 - `ops.py`: operations shared by CLI and TUI: `fetch` (dedupe, resolve new RSS DOIs, one commit,
   state only for feeds that succeeded), `triage` (keep/later/skip + seen.jsonl), `suggest`,
   `add_feed`/`remove_feed`.
+- `projects.py`: `Project` (`[projects.<name>]`), `BibFile` (split a .bib around the managed block;
+  `managed` = key → entry text; `render` rewrites only the block, sorted by key), `entry_keys`,
+  `scan_tex` (cite commands incl. optional args and `\nocite{*}`, follows `\input`/`\include`
+  from the main file's directory, finds `\bibliography`/`\addbibresource`), `Report`,
+  `duplicate_keys`. `ops.cite` regenerates every managed entry from the library, leaves keys
+  defined outside the block and unknown managed keys alone, writes the paper repo's .bib without
+  committing there, and adds the project to the papers' `projects`. `ops.check(fix, prune)`.
 - `wizard.py`: `ruru feeds wizard` (the only prompting command; refuses without a TTY). Injected
   `ask`/`say` for tests; every feed goes through `ops.add_feed`.
 - `search.py`: linear, accent-insensitive AND search with field weights.
