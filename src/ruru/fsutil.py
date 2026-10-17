@@ -15,13 +15,13 @@ from ruru.errors import LockHeld
 LOCK_TIMEOUT = 10.0  # seconds to wait for another ruru process before exiting 4
 
 
-def atomic_write(path: Path, text: str) -> None:
+def atomic_write(path: Path, data: str | bytes) -> None:
     """Write to a temporary file in the same directory, then rename over `path`."""
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
     try:
-        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
-            f.write(text)
+        with os.fdopen(fd, "wb") as f:
+            f.write(data.encode("utf-8") if isinstance(data, str) else data)
             f.flush()
             os.fsync(f.fileno())
         os.replace(tmp, path)

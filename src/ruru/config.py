@@ -40,6 +40,11 @@ def resolve_library(arg: str | None = None) -> Path:
     return Path(raw).expanduser()
 
 
+def secret(name: str) -> str | None:
+    """An API key: `$RURU_<NAME>`, else `<name>` in the user config (never in ruru.toml, which is in git)."""
+    return os.environ.get(f"RURU_{name.upper()}") or read_user_config().get(name) or None
+
+
 def toml_str(s: str) -> str:
     return json.dumps(s, ensure_ascii=False)  # a TOML basic string
 

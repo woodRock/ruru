@@ -8,15 +8,20 @@ Papers arrive from feeds (arXiv, OpenAlex, Crossref, journal RSS), get triaged l
 Markdown files with YAML front matter in a git repository, and flow into each paper repo's `.bib`.
 Agents such as Claude Code use exactly the same CLI.
 
-> **Status:** early development. M1 (the library core) works: `init`, `add` (from BibTeX or by
-> hand), `list`, `show`, `search`, `tag`, `status`, `note`. Feeds, resolvers and projects come next.
+> **Status:** early development. Working: the library (`init`, `add`, `list`, `show`, `search`,
+> `tag`, `status`, `note`) and metadata resolution (`add DOI|ARXIV|URL|"TITLE"`, `refresh`, `pdf`).
+> Feeds and the inbox, projects (`cite`, `check`) and the TUI come next.
 
 ## Install
 
+With [uv](https://docs.astral.sh/uv/), as an isolated tool on your PATH (`~/.local/bin/ruru`):
+
 ```bash
-python3.11 -m pip install -e .          # CLI
-python3.11 -m pip install -e ".[tui]"   # plus the optional terminal UI
+uv tool install --python 3.11 --editable "/path/to/ruru[tui]"   # drop [tui] for the CLI only
 ```
+
+`--editable` follows the checkout, so `git pull` is enough to update (re-run with `--reinstall`
+when dependencies change). Without uv: `python3.11 -m pip install --user -e "/path/to/ruru[tui]"`.
 
 ## Quick start
 
@@ -57,6 +62,33 @@ ruru show wood2026joint --bib
 ruru tag wood2026joint +key-paper -todo
 ruru status wood2026joint read
 ruru note wood2026joint                    # your notes, in $EDITOR
+```
+
+## Adding papers and keeping them current
+
+```bash
+ruru add 10.1186/s13321-021-00544-w        # DOI (Crossref, plus OpenAlex for ids, abstract, OA PDF)
+ruru add 2103.13807 -t gc-ms               # arXiv: follows the journal DOI if the authors added one
+ruru add https://pubs.acs.org/doi/10.1021/ac0518219     # any URL containing a DOI or arXiv id
+ruru add "Deep learning" --year 2015       # an exact title, only if exactly one work matches
+ruru refresh                               # re-resolve everything: preprints that got published, fixes
+ruru pdf guillevic2021automated --fetch --open           # open-access PDFs only
+```
+
+ruru never guesses: a title that matches several works is refused with the candidates listed, and
+a paper that can't be found is reported, not approximated. `refresh` updates metadata only;
+keys, status, tags, projects and notes are never touched.
+
+Sources are the arXiv, Crossref and OpenAlex APIs (no scraping). Requests are spaced (3 s for
+arXiv), retried with backoff on 429/5xx, and cached by ETag under `.ruru/http/`. OpenAlex gives a
+small free daily budget per IP address; for more, get a free key at
+<https://openalex.org/settings/api> and put it in your **user** config (not `ruru.toml`, which is
+committed):
+
+```toml
+# ~/.config/ruru/config.toml
+library = "~/papers"
+openalex_api_key = "…"        # or set RURU_OPENALEX_API_KEY
 ```
 
 ## Using ruru with agents

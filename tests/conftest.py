@@ -6,7 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from ruru import cli
+from httpfix import Router, standard
+from ruru import cli, http
 
 
 @dataclass
@@ -29,6 +30,26 @@ def isolated(tmp_path, monkeypatch):
         monkeypatch.setenv(f"GIT_{var}_EMAIL", "test@example.invalid")
     monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(tmp_path / "gitconfig"))
     monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    monkeypatch.delenv("RURU_OPENALEX_API_KEY", raising=False)
+    # No network, ever: an empty router fails any request. Tests that need HTTP use `net`.
+    monkeypatch.setattr(http, "default_transport", Router())
+    monkeypatch.setattr(http, "default_sleep", lambda s: None)
+
+
+@pytest.fixture
+def sleeps(monkeypatch) -> list[float]:
+    calls: list[float] = []
+    monkeypatch.setattr(http, "default_sleep", calls.append)
+    return calls
+
+
+@pytest.fixture
+def net(monkeypatch) -> Router:
+    """A router serving every recorded fixture; add synthetic routes to it (they match first if
+    inserted at the front: `net.routes.insert(0, …)`, or build a fresh `Router()`)."""
+    router = standard(Router())
+    monkeypatch.setattr(http, "default_transport", router)
+    return router
 
 
 @pytest.fixture

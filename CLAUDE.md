@@ -45,8 +45,7 @@ expanded under `nohup`).
 
 ## Architecture
 
-M0–M1 done. Next: M2 resolvers (DOI/arXiv/OpenAlex/Crossref, `add ID|URL|TITLE`, `refresh`,
-`pdf --fetch`), M3 feeds and inbox (incl. `ruru feeds wizard`), M4 projects (`ruru project add`,
+M0–M2 done. Next: M3 feeds and inbox (incl. `ruru feeds wizard`), M4 projects (`ruru project add`,
 `cite`, `check`), M5 skill and docs, M6 TUI. Update this section as each lands.
 
 Decisions beyond the brief (Jesse, 2026-10-17): `bib_encoding = "ascii"` by default (he uses Overleaf
@@ -71,10 +70,26 @@ the user config is `~/.config/ruru/config.toml` on macOS too.
 - `library.py`: `Library` (`open`, `init`, `get`, `papers`, `find_duplicate`, `add`, `set_status`) and
   `Transaction` (`with lib.transaction(msg) as tx:` locks, `tx.save(paper)` writes paper.md +
   paper.bib, commits touched files at the end; set `tx.message` inside to describe the change).
+- `http.py`: `Client` (per-host spacing `SPACING`, retries on 429/5xx/transport errors honouring
+  Retry-After, ETag/Last-Modified cache in `.ruru/http/`, `mailto=` and the OpenAlex key);
+  `get_json`/`get_text` raise `NotFound` (exit 1) or `HttpError` (exit 3). Module globals
+  `default_transport`/`default_sleep` are what tests replace.
+- `resolve/`: `arxiv.py`, `crossref.py`, `openalex.py` (each `… -> Paper`; arXiv DataCite DOIs go
+  to `ids.arxiv`, so `ids.doi` always means a published version) and `__init__.py`:
+  `parse_identifier` (doi | arxiv | openalex | title; URLs reduced to an id or refused), `Resolver`
+  (`by_doi` = Crossref + OpenAlex extras, `by_arxiv` follows the arXiv record's DOI, `by_title`
+  accepts exactly one exact-title match, collapsing only records that share an id, `refresh` also
+  looks for a same-title published article), `merge` (fill gaps), `apply_metadata` (only
+  `METADATA` fields + ids; never erases), `changes`.
 - `search.py`: linear, accent-insensitive AND search with field weights.
 - `output.py`: colour (`style`), `paper_json` (the docs/json.md schema), `paper_line`.
-- `cli.py`: argparse; one `cmd_*` per command; `common`/`write`/`read` parent parsers give every
+- `cli.py`: network work happens before `lib.transaction()` (never hold the lock across HTTP), and
+  writes after it re-read the paper and apply only metadata. `_exit_code` maps per-item failures to
+  1 (all failed alike) or 3 (mixed). argparse; one `cmd_*` per command; `common`/`write`/`read` parent parsers give every
   subcommand `-L`, `--no-commit`, `-q`, `--json`. `main` maps `RuruError` to exit codes.
 
 Tests: `tests/conftest.py` isolates every test (`RURU_CONFIG`, git identity, short lock timeout) and
-provides `run(*argv) -> Result(code, out, err)` and a `lib` fixture (an initialised library).
+provides `run(*argv) -> Result(code, out, err)` and a `lib` fixture (an initialised library). It
+also installs an empty `httpfix.Router` as the HTTP transport, so any unplanned request fails the
+test; the `net` fixture serves the recorded responses in `tests/fixtures/http/` (see its README),
+and `sleeps` records backoff/spacing sleeps.

@@ -1,0 +1,53 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<feed xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/" xmlns:arxiv="http://arxiv.org/schemas/atom" xmlns="http://www.w3.org/2005/Atom">
+  <id>https://arxiv.org/api//H6Fytg9VJo4GyLvtHGoTPh6jSo</id>
+  <title>arXiv Query: search_query=&amp;id_list=2103.13807&amp;start=0&amp;max_results=1</title>
+  <updated>2026-10-17T07:33:19Z</updated>
+  <link href="https://arxiv.org/api/query?search_query=&amp;start=0&amp;max_results=1&amp;id_list=2103.13807" type="application/atom+xml"/>
+  <opensearch:itemsPerPage>1</opensearch:itemsPerPage>
+  <opensearch:totalResults>1</opensearch:totalResults>
+  <opensearch:startIndex>0</opensearch:startIndex>
+  <entry>
+    <id>http://arxiv.org/abs/2103.13807v2</id>
+    <title>Automated fragment identification for electron ionisation mass spectrometry: application to atmospheric measurements of halocarbons</title>
+    <updated>2021-12-08T09:28:17Z</updated>
+    <link href="https://arxiv.org/abs/2103.13807v2" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2103.13807v2" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Non-target screening consists in searching a sample for all present substances, suspected or unknown, with very little prior knowledge about the sample. This approach has been introduced  more than a decade ago in the field of water analysis, together with dedicated compound identification tools, but is still very scarce for indoor and atmospheric trace gas measurements, despite the clear need for a better understanding of the atmospheric trace gas composition.For a systematic detection of emerging trace gases in the atmosphere, a new and powerful analytical method is gas chromatography (GC) of preconcentrated samples, followed by electron ionisation, high resolution mass spectrometry (EI-HRMS). In this work, we present  data analysis tools to enable automated fragment formula annotation for unknown compounds measured by GC-EI-HRMS. Based on co-eluting mass/charge fragments, we developed an innovative data analysis method to reliably reconstruct the chemical formulae of the fragments, using efficient combinatorics and graph theory. The method does not require the presence of the molecular ion, which is absent in ~40% of EI spectra. Our method has been trained and validated on \textgreater50 halocarbons and hydrocarbons, with 3 to 20 atoms and molar masses of 30 to 330 g mol-1, measured with a mass resolution of approx.~3500. For 90% of the compounds, more than 90% of the annotated fragment formulae are correct. Cases of wrong identification can be attributed to the scarcity of detected fragments per compound or the lack of isotopic constraint (no minor isotopocule detected).Our method enables to reconstruct most probable chemical formulae independently from spectral databases. Therefore, it demonstrates the suitability of EI-HRMS data for non-target analysis and paves the way for the identification of substances for which no EI mass spectrum is registered in databases. We illustrate the performances of our method for atmospheric trace gases and suggest that it may be well suited for many other types of samples. The L-GPL licenced Python code is released under the name ALPINAC for ALgorithmic Process for Identification of Non-targeted Atmospheric Compounds.</summary>
+    <category term="physics.comp-ph" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="physics.chem-ph" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2021-03-23T09:35:10Z</published>
+    <arxiv:comment>Journal of Cheminformatics, Chemistry Central Ltd. and BioMed Central, 2021</arxiv:comment>
+    <arxiv:primary_category term="physics.comp-ph"/>
+    <author>
+      <name>Myriam Guillevic</name>
+      <arxiv:affiliation>EMPA</arxiv:affiliation>
+    </author>
+    <author>
+      <name>Aurore Guillevic</name>
+      <arxiv:affiliation>CARAMBA</arxiv:affiliation>
+    </author>
+    <author>
+      <name>Martin Vollmer</name>
+      <arxiv:affiliation>EMPA</arxiv:affiliation>
+    </author>
+    <author>
+      <name>Paul Schlauri</name>
+      <arxiv:affiliation>EMPA</arxiv:affiliation>
+    </author>
+    <author>
+      <name>Matthias Hill</name>
+      <arxiv:affiliation>EMPA</arxiv:affiliation>
+    </author>
+    <author>
+      <name>Lukas Emmenegger</name>
+      <arxiv:affiliation>EMPA</arxiv:affiliation>
+    </author>
+    <author>
+      <name>Stefan Reimann</name>
+      <arxiv:affiliation>EMPA</arxiv:affiliation>
+    </author>
+    <arxiv:doi>10.1186/s13321-021-00544-w</arxiv:doi>
+    <link rel="related" href="https://doi.org/10.1186/s13321-021-00544-w" title="doi"/>
+  </entry>
+</feed>

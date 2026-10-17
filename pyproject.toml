@@ -74,7 +74,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["ruru", "conftest"]
+known-first-party = ["ruru", "conftest", "httpfix"]
 
 [tool.mypy]
 python_version = "3.11"
