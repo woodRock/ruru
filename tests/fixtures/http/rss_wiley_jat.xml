@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss xmlns:atom="http://www.w3.org/2005/Atom"
+     xmlns:content="http://purl.org/rss/1.0/modules/content/"
+     xmlns:dc="http://purl.org/dc/elements/1.1/"
+     xmlns:prism="http://prismstandard.org/namespaces/basic/2.0/"
+     version="2.0">
+   <channel>
+      <title>Wiley: Journal of Applied Toxicology: Table of Contents</title>
+      <link>https://analyticalsciencejournals.onlinelibrary.wiley.com/journal/10991263?af=R</link>
+      <description>Table of Contents for Journal of Applied Toxicology. List of articles from both the latest and EarlyView issues.</description>
+      <language>en-US</language>
+      <copyright>© John Wiley &amp; Sons Ltd</copyright>
+      <managingEditor>wileyonlinelibrary@wiley.com (Analytical Science Journals)</managingEditor>
+      <pubDate>Sat, 17 Oct 2026 07:13:58 +0000</pubDate>
+      <lastBuildDate>Sat, 17 Oct 2026 07:13:58 +0000</lastBuildDate>
+      <generator>Atypon® Literatum™</generator>
+      <docs>https://validator.w3.org/feed/docs/rss2.html</docs>
+      <ttl>10080</ttl>
+      <dc:title>Wiley: Journal of Applied Toxicology: Table of Contents</dc:title>
+      <dc:publisher>Wiley</dc:publisher>
+      <prism:publicationName>Journal of Applied Toxicology</prism:publicationName>
+      <atom:link href="https://analyticalsciencejournals.onlinelibrary.wiley.com/journal/10991263?af=R"
+                 rel="self"
+                 type="application/atom+xml"/>
+      <image>
+         <title>Wiley: Journal of Applied Toxicology: Table of Contents</title>
+         <url>https://analyticalsciencejournals.onlinelibrary.wiley.com/pb-assets/journal-banners/10991263.jpg</url>
+         <link>https://analyticalsciencejournals.onlinelibrary.wiley.com/journal/10991263?af=R</link>
+      </image>
+      <item>
+         <link>https://analyticalsciencejournals.onlinelibrary.wiley.com/doi/10.1002/jat.70464?af=R</link>
+         <pubDate>Fri, 16 Oct 2026 22:15:44 -0700</pubDate>
+         <dc:date>2026-10-16T10:15:44-07:00</dc:date>
+         <source url="https://analyticalsciencejournals.onlinelibrary.wiley.com/journal/10991263?af=R">Wiley: Journal of Applied Toxicology: Table of Contents</source>
+         <prism:coverDate/>
+         <prism:coverDisplayDate/>
+         <guid isPermaLink="false">10.1002/jat.70464</guid>
+         <title>Toxicity of Organophosphate Insecticides and Biochemical Mechanisms Associated With Resistance in Field Populations of Plutella xylostella (L.) From Kashmir, India</title>
+         <description>Journal of Applied Toxicology, EarlyView. </description>
+         <dc:description>
+ABSTRACT
+The diamondback moth, Plutella xylostella (L.) (Lepidoptera: Plutellidae), is a globally important pest of cruciferous crops, for which intensive insecticide use has accelerated the evolution of resistance. However, the magnitude and biochemical basis of organophosphate resistance in P. xylostella populations from the Kashmir Valley remain poorly understood. Here, we quantified susceptibility to chlorpyrifos, dimethoate and quinalphos in nine field populations using leaf‐dip bioassays and investigated associations between resistance phenotypes and activities of acetylcholinesterase (AChE), cytochrome P450 monooxygenases (CYP450) and glutathione S‐transferases (GST). Resistance ratios (RR) varied substantially among populations, ranging from 8.48 to 34.67 for chlorpyrifos, 6.83–76.61 for dimethoate and 3.79–14.19 for quinalphos. Pulwama and Budgam consistently exhibited the highest resistance, whereas Ganderbal was the most susceptible population. Dimethoate resistance was particularly pronounced in Pulwama (RR = 76.61; LC50 = 17.90 mL L−1). At the highest concentrations tested, corrected mortality remained below 50% across populations, although LC50 estimates exceeding the tested concentration range should be interpreted cautiously. Enzyme assays revealed markedly elevated AChE and CYP450 activities in resistant populations, with increases of up to 34‐fold and 10‐fold, respectively, whereas GST activity showed no significant population‐level difference. Spearman analysis further indicated significant positive associations of AChE, CYP450 and GST activities with quinalphos resistance (ρ = 0.79–0.91; p &lt; 0.05), but not with chlorpyrifos or dimethoate resistance. These findings demonstrate substantial spatial heterogeneity in organophosphate susceptibility and indicate that biochemical resistance mechanisms are insecticide‐specific rather than uniformly expressed across organophosphate resistance phenotypes. The pronounced dimethoate resistance, despite weak associations with the measured detoxification enzymes, suggests the involvement of additional mechanisms, including target‐site insensitivity, alternative detoxification pathways, or reduced insecticide penetration. The results provide a baseline for resistance surveillance in Kashmir and support mechanism‐informed insecticide rotation and resistance‐management strategies for P. xylostella.
+</dc:description>
+         <content:encoded>
+&lt;h2&gt;ABSTRACT&lt;/h2&gt;
+&lt;p&gt;The diamondback moth, &lt;i&gt;Plutella xylostella&lt;/i&gt; (L.) (Lepidoptera: Plutellidae), is a globally important pest of cruciferous crops, for which intensive insecticide use has accelerated the evolution of resistance. However, the magnitude and biochemical basis of organophosphate resistance in &lt;i&gt;P. xylostella&lt;/i&gt; populations from the Kashmir Valley remain poorly understood. Here, we quantified susceptibility to chlorpyrifos, dimethoate and quinalphos in nine field populations using leaf-dip bioassays and investigated associations between resistance phenotypes and activities of acetylcholinesterase (AChE), cytochrome P450 monooxygenases (CYP450) and glutathione S-transferases (GST). Resistance ratios (RR) varied substantially among populations, ranging from 8.48 to 34.67 for chlorpyrifos, 6.83–76.61 for dimethoate and 3.79–14.19 for quinalphos. Pulwama and Budgam consistently exhibited the highest resistance, whereas Ganderbal was the most susceptible population. Dimethoate resistance was particularly pronounced in Pulwama (RR = 76.61; LC&lt;sub&gt;50&lt;/sub&gt; = 17.90 mL L&lt;sup&gt;−1&lt;/sup&gt;). At the highest concentrations tested, corrected mortality remained below 50% across populations, although LC&lt;sub&gt;50&lt;/sub&gt; estimates exceeding the tested concentration range should be interpreted cautiously. Enzyme assays revealed markedly elevated AChE and CYP450 activities in resistant populations, with increases of up to 34-fold and 10-fold, respectively, whereas GST activity showed no significant population-level difference. Spearman analysis further indicated significant positive associations of AChE, CYP450 and GST activities with quinalphos resistance (&lt;i&gt;ρ&lt;/i&gt; = 0.79–0.91; &lt;i&gt;p&lt;/i&gt; &amp;lt; 0.05), but not with chlorpyrifos or dimethoate resistance. These findings demonstrate substantial spatial heterogeneity in organophosphate susceptibility and indicate that biochemical resistance mechanisms are insecticide-specific rather than uniformly expressed across organophosphate resistance phenotypes. The pronounced dimethoate resistance, despite weak associations with the measured detoxification enzymes, suggests the involvement of additional mechanisms, including target-site insensitivity, alternative detoxification pathways, or reduced insecticide penetration. The results provide a baseline for resistance surveillance in Kashmir and support mechanism-informed insecticide rotation and resistance-management strategies for &lt;i&gt;P. xylostella&lt;/i&gt;.&lt;/p&gt;</content:encoded>
+         <dc:creator>
+Bazila Rehman, 
+Tariq Ahmad, 
+Barkat Hussain
+</dc:creator>
+         <category>RESEARCH ARTICLE</category>
+         <dc:title>Toxicity of Organophosphate Insecticides and Biochemical Mechanisms Associated With Resistance in Field Populations of Plutella xylostella (L.) From Kashmir, India</dc:title>
+         <dc:identifier>10.1002/jat.70464</dc:identifier>
+         <prism:publicationName>Journal of Applied Toxicology</prism:publicationName>
+         <prism:doi>10.1002/jat.70464</prism:doi>
+         <prism:url>https://analyticalsciencejournals.onlinelibrary.wiley.com/doi/10.1002/jat.70464?af=R</prism:url>
+         <prism:section>RESEARCH ARTICLE</prism:section>
+      </item><item>
+         <link>https://analyticalsciencejournals.onlinelibrary.wiley.com/doi/10.1002/jat.70468?af=R</link>
+         <pubDate>Wed, 14 Oct 2026 02:10:55 -0700</pubDate>
+         <dc:date>2026-10-14T02:10:55-07:00</dc:date>
+         <source url="https://analyticalsciencejournals.onlinelibrary.wiley.com/journal/10991263?af=R">Wiley: Journal of Applied Toxicology: Table of Contents</source>
+         <prism:coverDate/>
+         <prism:coverDisplayDate/>
+         <guid isPermaLink="false">10.1002/jat.70468</guid>
+         <title>Assessment of Industrial Effluent‐Induced Multi‐Organ Toxicity, Genotoxicity, DNA Damage, and Esterase Activities Changes in the Brain, Liver, and Muscle of Oreochromis niloticus</title>
+         <description>Journal of Applied Toxicology, EarlyView. </description>
+         <dc:description>
+ABSTRACT
+Industrial effluents frequently contain a variety of toxic substances that can seriously threaten aquatic life. Pollutants discharged in industrial effluents can significantly induce genetic damage in aquatic organisms, leading to long‐term ecological consequences and impairments in fish health and reproduction. The present study provides an integrated assessment of neurotoxic, genotoxic, biochemical, and histopathological response of Oreochromis niloticus against composite of industrial effluents. Fish were exposed to 1/5th of sublethal LC50 concentration of composite untreated industrial effluents from Sundar Industrial Estate for 14 days, alongside an untreated control group. Neurotoxicity and biochemical analyses were done by measuring acetylcholinesterase (AChE) and carboxylesterase (CbE) activities in liver, muscle, and brain tissues, while cytogenotoxicity was evaluated by micronucleus, erythrocyte nuclear alterations, cellular abnormalities, and comet assay. Results showed significant (p &lt; 0.05) inhibition of AChE activity by 1.28‐fold in muscle, 2.53‐fold in liver, and 1.35‐fold in brain tissues. CbE activity was significantly induced (2.17‐fold) in liver, while inhibited by 1.2‐fold in muscle and 1.62‐fold in brain tissues. Micronuclei formation and erythrocyte nuclear abnormalities including notched, elongated, and blebbed nuclei along with cellular deformities such as spindle‐shaped, swollen, and vacuolated cells were observed in exposed fish. The comet assay revealed minor to moderate DNA damage, with significant differences in comet parameters compared to control. Histopathological alterations in liver, muscle, and brain tissues were also evident. The present findings demonstrate that these industrial effluents have the potential to induce toxic effect at multiple biological levels in exposed fish. Overall, industrial effluents caused enzymatic disruption, genetic damage, and tissue injury, posing risks to fish and human consumers.
+</dc:description>
+         <content:encoded>
+&lt;h2&gt;ABSTRACT&lt;/h2&gt;
+&lt;p&gt;Industrial effluents frequently contain a variety of toxic substances that can seriously threaten aquatic life. Pollutants discharged in industrial effluents can significantly induce genetic damage in aquatic organisms, leading to long-term ecological consequences and impairments in fish health and reproduction. The present study provides an integrated assessment of neurotoxic, genotoxic, biochemical, and histopathological response of &lt;i&gt;Oreochromis niloticus&lt;/i&gt; against composite of industrial effluents. Fish were exposed to 1/5th of sublethal LC&lt;sub&gt;50&lt;/sub&gt; concentration of composite untreated industrial effluents from Sundar Industrial Estate for 14 days, alongside an untreated control group. Neurotoxicity and biochemical analyses were done by measuring acetylcholinesterase (AChE) and carboxylesterase (CbE) activities in liver, muscle, and brain tissues, while cytogenotoxicity was evaluated by micronucleus, erythrocyte nuclear alterations, cellular abnormalities, and comet assay. Results showed significant (&lt;i&gt;p&lt;/i&gt; &amp;lt; 0.05) inhibition of AChE activity by 1.28-fold in muscle, 2.53-fold in liver, and 1.35-fold in brain tissues. CbE activity was significantly induced (2.17-fold) in liver, while inhibited by 1.2-fold in muscle and 1.62-fold in brain tissues. Micronuclei formation and erythrocyte nuclear abnormalities including notched, elongated, and blebbed nuclei along with cellular deformities such as spindle-shaped, swollen, and vacuolated cells were observed in exposed fish. The comet assay revealed minor to moderate DNA damage, with significant differences in comet parameters compared to control. Histopathological alterations in liver, muscle, and brain tissues were also evident. The present findings demonstrate that these industrial effluents have the potential to induce toxic effect at multiple biological levels in exposed fish. Overall, industrial effluents caused enzymatic disruption, genetic damage, and tissue injury, posing risks to fish and human consumers.&lt;/p&gt;</content:encoded>
+         <dc:creator>
+Sarwat Ishaq, 
+Ghazala Jabeen, 
+Iqra Muzaffar, 
+Mateen Arshad
+</dc:creator>
+         <category>RESEARCH ARTICLE</category>
+         <dc:title>Assessment of Industrial Effluent‐Induced Multi‐Organ Toxicity, Genotoxicity, DNA Damage, and Esterase Activities Changes in the Brain, Liver, and Muscle of Oreochromis niloticus</dc:title>
+         <dc:identifier>10.1002/jat.70468</dc:identifier>
+         <prism:publicationName>Journal of Applied Toxicology</prism:publicationName>
+         <prism:doi>10.1002/jat.70468</prism:doi>
+         <prism:url>https://analyticalsciencejournals.onlinelibrary.wiley.com/doi/10.1002/jat.70468?af=R</prism:url>
+         <prism:section>RESEARCH ARTICLE</prism:section>
+      </item><item>
+         <link>https://analyticalsciencejournals.onlinelibrary.wiley.com/doi/10.1002/jat.70478?af=R</link>
+         <pubDate>Wed, 14 Oct 2026 02:01:36 -0700</pubDate>
+         <dc:date>2026-10-14T02:01:36-07:00</dc:date>
+         <source url="https://analyticalsciencejournals.onlinelibrary.wiley.com/journal/10991263?af=R">Wiley: Journal of Applied Toxicology: Table of Contents</source>
+         <prism:coverDate/>
+         <prism:coverDisplayDate/>
+         <guid isPermaLink="false">10.1002/jat.70478</guid>
+         <title>Cardiac Histomorphometric Implications Resulting From Chronic Nandrolone Decanoate Treatment in Rats Subjected to Resistance Training</title>
+         <description>Journal of Applied Toxicology, EarlyView. </description>
+         <dc:description>
+ABSTRACT
+The effects of anabolic steroid abuse on the cardiac tissue of resistance training practitioners are poorly understood. Herein, we present the histomorphometric implications of resistance training in rats treated with nandrolone decanoate, an androgenic anabolic steroid. Eighteen‐week‐old male Wistar rats (N = 32) were divided into two groups (N = 16): vehicle group (VEH; 0.2 mL/kg i.m., peanut oil) and group treated with nandrolone decanoate (NAN; 5 mg/kg i.m.), both for 12 weeks. Half of each group underwent a resistance training protocol (VEH‐T and NAN‐T) during the same period. At the end, the animals were euthanized for cardiac morphometric and histological evaluation. The NAN group presented an increase in left ventricular wall thickness and cardiomyocyte cross‐sectional area, together with a reduction in the percentage area occupied by cardiomyocytes and an increase in interstitial fibrosis percentage, compared with the VEH group. In turn, the VEH‐T group showed increased left ventricular wall thickness, cardiomyocyte cross‐sectional area, and myonuclear number, with no effect on interstitial fibrosis or the percentage area occupied by cardiomyocytes. In contrast, the NAN‐T group exhibited a higher cardiomyocyte cross‐sectional area and myonuclear number than the other groups, together with a lower interstitial fibrosis percentage than the NAN group. Chronic treatment with a supraphysiological dose of nandrolone decanoate resulted in adverse cardiac remodeling and increased interstitial fibrosis. Resistance training promoted cardiac hypertrophy without increasing fibrosis. When combined with nandrolone, training was associated with lower fibrosis values than those observed in untrained nandrolone‐treated animals but did not prevent the major structural alterations associated with nandrolone exposure.
+</dc:description>
+         <content:encoded>
+&lt;h2&gt;ABSTRACT&lt;/h2&gt;
+&lt;p&gt;The effects of anabolic steroid abuse on the cardiac tissue of resistance training practitioners are poorly understood. Herein, we present the histomorphometric implications of resistance training in rats treated with nandrolone decanoate, an androgenic anabolic steroid. Eighteen-week-old male Wistar rats (&lt;i&gt;N&lt;/i&gt; = 32) were divided into two groups (&lt;i&gt;N&lt;/i&gt; = 16): vehicle group (VEH; 0.2 mL/kg i.m., peanut oil) and group treated with nandrolone decanoate (NAN; 5 mg/kg i.m.), both for 12 weeks. Half of each group underwent a resistance training protocol (VEH-T and NAN-T) during the same period. At the end, the animals were euthanized for cardiac morphometric and histological evaluation. The NAN group presented an increase in left ventricular wall thickness and cardiomyocyte cross-sectional area, together with a reduction in the percentage area occupied by cardiomyocytes and an increase in interstitial fibrosis percentage, compared with the VEH group. In turn, the VEH-T group showed increased left ventricular wall thickness, cardiomyocyte cross-sectional area, and myonuclear number, with no effect on interstitial fibrosis or the percentage area occupied by cardiomyocytes. In contrast, the NAN-T group exhibited a higher cardiomyocyte cross-sectional area and myonuclear number than the other groups, together with a lower interstitial fibrosis percentage than the NAN group. Chronic treatment with a supraphysiological dose of nandrolone decanoate resulted in adverse cardiac remodeling and increased interstitial fibrosis. Resistance training promoted cardiac hypertrophy without increasing fibrosis. When combined with nandrolone, training was associated with lower fibrosis values than those observed in untrained nandrolone-treated animals but did not prevent the major structural alterations associated with nandrolone exposure.&lt;/p&gt;</content:encoded>
+         <dc:creator>
+Lucas D. Ferreira, 
+Tallys E. Velasco, 
+Bruno A. Aguilar, 
+João V. M. Bernal, 
+Gabriel A. Lavez, 
+João P. Passaglia, 
+Hugo C. D. Souza
+</dc:creator>
+         <category>RESEARCH ARTICLE</category>
+         <dc:title>Cardiac Histomorphometric Implications Resulting From Chronic Nandrolone Decanoate Treatment in Rats Subjected to Resistance Training</dc:title>
+         <dc:identifier>10.1002/jat.70478</dc:identifier>
+         <prism:publicationName>Journal of Applied Toxicology</prism:publicationName>
+         <prism:doi>10.1002/jat.70478</prism:doi>
+         <prism:url>https://analyticalsciencejournals.onlinelibrary.wiley.com/doi/10.1002/jat.70478?af=R</prism:url>
+         <prism:section>RESEARCH ARTICLE</prism:section>
+      </item>
+   </channel>
+</rss>

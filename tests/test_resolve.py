@@ -152,7 +152,7 @@ def test_arxiv_parsing_edge_cases():
 def test_arxiv_query(net):
     net.add(r"search_query=cat", "arxiv_search_chem.xml")
     papers = arxiv.query(Client(), "cat:physics.chem-ph AND abs:chromatography", max_results=30)
-    assert len(papers) == 30
+    assert len(papers) == 30 and all(d is not None for _, d in papers)
     assert "sortBy=submittedDate" in net.urls()[-1]
 
 

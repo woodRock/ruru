@@ -19,15 +19,16 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from ruru import __version__, http, model
+from ruru import __version__, feeds, http, model, ops
 from ruru.bibtex import ENCODINGS, parse_bibtex, to_bibtex
 from ruru.config import config_path, resolve_library, secret, write_user_config
 from ruru.errors import LOCKED, NO_MATCH, OK, PARTIAL, USAGE, NothingMatched, RuruError, UsageError
 from ruru.fsutil import atomic_write, library_lock
+from ruru.inbox import DECISIONS, Inbox, Item, UnknownItem, read_seen
 from ruru.library import Library
 from ruru.model import Paper
-from ruru.output import emit_json, paper_json, paper_line, style, warn
-from ruru.resolve import Resolver, apply_metadata, changes, parse_identifier
+from ruru.output import emit_json, item_json, item_line, paper_json, paper_line, style, warn
+from ruru.resolve import Resolver, apply_metadata, changes, openalex, parse_identifier
 from ruru.search import search
 
 # The exit codes are re-exported: tests and scripts refer to cli.OK etc.
@@ -205,8 +206,38 @@ def cmd_list(args: argparse.Namespace) -> int:
     return OK
 
 
+def _show_item(lib: Library, item: Item, args: argparse.Namespace) -> int:
+    if args.bib:
+        raise UsageError(f"{item.id} is still in the inbox: `ruru keep {item.id}` first")
+    if args.json:
+        emit_json(item_json(item, lib.root))
+    elif args.quiet:
+        print(item.id)
+    else:
+        p = item.paper
+        ids = ", ".join(f"{k}: {v}" for k, v in p.ids.items() if v)
+        lines = [style(p.title, "bold"), ", ".join(p.authors), " · ".join(str(x) for x in (p.year, p.venue) if x),
+                 f"inbox: {item.id}   from {p.source}   fetched {item.fetched}", ids, p.url or ""]
+        if item.suggestion:
+            s = item.suggestion
+            lines.append(style(f"suggested: {s.get('action')} ({s.get('by')}): {s.get('reason')}", "yellow"))
+        if p.abstract:
+            lines += ["", p.abstract]
+        print("\n".join(line for line in lines if line))
+    return OK
+
+
 def cmd_show(args: argparse.Namespace) -> int:
     lib = _open(args)
+    if not lib.exists(args.key):
+        try:
+            return _show_item(lib, Inbox(lib.root).get(args.key), args)
+        except UnknownItem:
+            done = [r for r in read_seen(lib.root) if r.get("id") == args.key]
+            if done:
+                r = done[-1]
+                raise UsageError(f"{args.key} was triaged on {r.get('date')}: {r.get('decision')}"
+                                 + (f" -> {r['key']}" if r.get("key") else "")) from None
     p = lib.get(args.key)
     if args.bib:
         encoding = args.bib_encoding or lib.settings.bib_encoding
@@ -419,6 +450,176 @@ def cmd_pdf(args: argparse.Namespace) -> int:
     return OK
 
 
+def _feed_list(lib: Library, names: Sequence[str] = ()) -> list[feeds.Feed]:
+    configured = feeds.load(lib.settings.feeds)
+    if not names:
+        return configured
+    by_name = {f.name: f for f in configured}
+    unknown = [n for n in names if n not in by_name]
+    if unknown:
+        raise UsageError(f"unknown feed(s): {', '.join(unknown)} (see `ruru feeds`)")
+    return [by_name[n] for n in names]
+
+
+def cmd_fetch(args: argparse.Namespace) -> int:
+    lib = _open(args)
+    selected = _feed_list(lib, args.feed or [])
+    if not selected:
+        raise UsageError("no feeds yet: run `ruru feeds wizard` or `ruru feeds add …`")
+    with _client(lib) as client:
+        results, items = ops.fetch(lib, client, selected, since=args.since)
+    for r in results:
+        if r.error:
+            warn(f"{r.name}: {r.error}")
+    if args.json:
+        emit_json({"feeds": [vars(r) for r in results], "new": [i.id for i in items]})
+    elif args.quiet:
+        for item in items:
+            print(item.id)
+    else:
+        for r in results:
+            status = style("failed", "red") if r.error else f"{r.new} new, {r.seen} already seen"
+            print(f"{r.name:<24} {status}")
+        print(f"{len(items)} new item{'s' * (len(items) != 1)}" + ("; see `ruru inbox`" if items else ""))
+    return PARTIAL if any(r.error for r in results) else OK
+
+
+def cmd_inbox(args: argparse.Namespace) -> int:
+    lib = _open(args)
+    items = Inbox(lib.root).items()
+    if args.feed:
+        items = [i for i in items if i.paper.source == f"feed:{args.feed}"]
+    if args.suggested:
+        want = None if args.suggested == "none" else args.suggested
+        items = [i for i in items if (i.suggestion or {}).get("action") == want]
+    if args.number:
+        items = items[:args.number]
+    if args.json:
+        emit_json([item_json(i, lib.root) for i in items])
+    elif args.quiet:
+        for i in items:
+            print(i.id)
+    else:
+        for i in items:
+            print(item_line(i))
+    if not items:
+        if not args.json:
+            print("inbox is empty", file=sys.stderr)
+        return NO_MATCH
+    return OK
+
+
+def _triage(args: argparse.Namespace, decision: str) -> int:
+    lib = _open(args)
+    tags = [_tag(t) for t in getattr(args, "tag", None) or []]
+    projects = getattr(args, "project", None) or []
+    for item, key in ops.triage(lib, args.ids, decision, tags=tags, projects=projects):
+        if args.quiet:
+            print(key or item.id)
+        else:
+            print(f"{decision} {item.id}" + (f" -> {key}" if key else ""))
+    return OK
+
+
+def cmd_keep(args: argparse.Namespace) -> int:
+    return _triage(args, "keep")
+
+
+def cmd_later(args: argparse.Namespace) -> int:
+    return _triage(args, "later")
+
+
+def cmd_skip(args: argparse.Namespace) -> int:
+    return _triage(args, "skip")
+
+
+def cmd_suggest(args: argparse.Namespace) -> int:
+    lib = _open(args)
+    item = ops.suggest(lib, args.id, args.action, args.reason, args.by)
+    print(item.id if args.quiet else f"{item.id}: suggested {args.action}")
+    return OK
+
+
+def cmd_feeds_list(args: argparse.Namespace) -> int:
+    lib = _open(args)
+    configured = feeds.load(lib.settings.feeds)
+    state = feeds.load_state(lib.root)
+    if args.json:
+        emit_json([f.to_dict() | {"last_fetch": (state.get(f.name) or {}).get("last_fetch")} for f in configured])
+    elif args.quiet:
+        for f in configured:
+            print(f.name)
+    else:
+        for f in configured:
+            last = (state.get(f.name) or {}).get("last_fetch") or "never"
+            print(f"{style(f'{f.name:<24}', 'bold')} {f.describe()}  {style(f'(fetched: {last})', 'dim')}")
+    if not configured:
+        if not args.json:
+            print("no feeds yet: `ruru feeds wizard` or `ruru feeds add …`", file=sys.stderr)
+        return NO_MATCH
+    return OK
+
+
+def cmd_feeds_add(args: argparse.Namespace) -> int:
+    lib = _open(args)
+    feed = feeds.Feed(name=args.name, kind=args.kind, title=args.title, query=args.query, filter=args.filter,
+                      search=args.search, issn=args.issn, url=args.url)
+    ops.add_feed(lib, feed)
+    print(feed.name if args.quiet else f"added feed {feed.name}: {feed.describe()}")
+    return OK
+
+
+def cmd_feeds_remove(args: argparse.Namespace) -> int:
+    lib = _open(args)
+    ops.remove_feed(lib, args.name)
+    print(args.name if args.quiet else f"removed feed {args.name}")
+    return OK
+
+
+def cmd_feeds_wizard(args: argparse.Namespace) -> int:
+    if not (sys.stdin.isatty() and sys.stdout.isatty()):
+        raise UsageError("`ruru feeds wizard` is interactive and needs a terminal; use `ruru feeds add …`")
+    from ruru.wizard import Wizard
+
+    lib = _open(args)
+    with _client(lib) as client:
+        Wizard(client, feeds.load(lib.settings.feeds), lambda f: ops.add_feed(lib, f)).run()
+    return OK
+
+
+def cmd_find(args: argparse.Namespace) -> int:
+    lib = _open(args)
+    with _client(lib) as client:
+        found = openalex.search(client, " ".join(args.query), per_page=args.number)
+    known = list(lib.papers())
+    rows = []
+    for p in found:
+        match = next((k for k in known if model.same_paper(k, p)), None)
+        best = (f"doi:{p.ids['doi']}" if p.ids.get("doi") else f"arXiv:{p.ids['arxiv']}" if p.ids.get("arxiv")
+                else p.ids.get("openalex") or "")
+        rows.append((p, best, match.key if match else None))
+    if args.json:
+        emit_json([{k: v for k, v in paper_json(p, path="", has_pdf=False).items()
+                    if k in model.FIELDS and k not in ("key", "status", "tags", "projects", "added", "read_on",
+                                                       "source")}
+                   | {"id": best, "in_library": key} for p, best, key in rows])
+    elif args.quiet:
+        for _, best, _ in rows:
+            print(best)
+    else:
+        for p, best, key in rows:
+            where = p.venue or ("arXiv" if p.ids.get("arxiv") else "")
+            print(f"{p.year or '----'}  {style(p.title, 'bold')}  {style(where, 'dim')}")
+            authors = ", ".join(p.authors[:3]) + (" et al." if len(p.authors) > 3 else "")
+            note = style(f"  [in library: {key}]", "green") if key else ""
+            print(f"      {authors}  {best}{note}")
+    if not rows:
+        if not args.json:
+            print("nothing found", file=sys.stderr)
+        return NO_MATCH
+    return OK
+
+
 def cmd_tui(args: argparse.Namespace) -> int:
     try:
         tui = importlib.import_module("ruru.tui")  # lazy: the core never imports Textual
@@ -542,6 +743,91 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--kind", default="note", help="entry label, e.g. summary, critique (default: note)")
     p.add_argument("--by", default=os.environ.get("RURU_AGENT", "agent"),
                    help="attribution (default: $RURU_AGENT or 'agent')")
+
+    p = command("fetch", cmd_fetch, "pull feeds into the inbox (new items only)",
+                ["ruru fetch", "ruru fetch -f anal-chem -f arxiv-chem", "ruru fetch && ruru inbox --json",
+                 "ruru fetch --since 2026-10-01 -q"],
+                [read])
+    p.add_argument("-f", "--feed", action="append", metavar="FEED", help="only this feed (repeatable)")
+    p.add_argument("--since", type=_date, metavar="DATE",
+                   help="look back to DATE instead of each feed's last fetch")
+
+    p = command("inbox", cmd_inbox, "list unseen items, newest first",
+                ["ruru inbox", "ruru inbox --json -n 20", "ruru inbox -f anal-chem -q",
+                 "ruru inbox --suggested keep", "ruru show arxiv-2610.01234     (one item in full)"],
+                [read])
+    p.add_argument("-n", "--number", type=int, metavar="N", help="at most N items")
+    p.add_argument("-f", "--feed", metavar="FEED", help="only items from this feed")
+    p.add_argument("--suggested", choices=[*DECISIONS, "none"], help="only items with this suggestion")
+
+    for name, func, what in (("keep", cmd_keep, "inbox -> library (status to-read)"),
+                             ("later", cmd_later, "inbox -> library, marked read later")):
+        p = command(name, func, what,
+                    [f"ruru {name} arxiv-2610.01234",
+                     f"ruru {name} arxiv-2610.01234 doi-10.1021-x -t gc-ms -p joint-align"],
+                    [write, quiet])
+        p.add_argument("ids", nargs="+", metavar="ID")
+        p.add_argument("-t", "--tag", action="append", metavar="TAG", help="repeatable")
+        p.add_argument("-p", "--project", action="append", metavar="PROJECT", help="repeatable")
+
+    p = command("skip", cmd_skip, "drop inbox items (remembered in seen.jsonl, never fetched again)",
+                ["ruru skip arxiv-2610.01234", "ruru inbox -q --suggested skip | xargs ruru skip"],
+                [write, quiet])
+    p.add_argument("ids", nargs="+", metavar="ID")
+
+    p = command("suggest", cmd_suggest, "record a recommendation on an inbox item (for agents)",
+                ["ruru suggest arxiv-2610.01234 keep --reason 'GC-MS alignment; relevant to joint-align'",
+                 "ruru suggest doi-10.1016-x skip --reason 'LC-MS proteomics, off topic' --by claude"],
+                [write, quiet])
+    p.add_argument("id", metavar="ID")
+    p.add_argument("action", choices=DECISIONS)
+    p.add_argument("--reason", required=True, help="one line, tied to your projects")
+    p.add_argument("--by", default=os.environ.get("RURU_AGENT", "agent"),
+                   help="attribution (default: $RURU_AGENT or 'agent')")
+
+    p = command("feeds", cmd_feeds_list, "list, add or remove feeds; or set them up interactively",
+                ["ruru feeds", "ruru feeds wizard", "ruru feeds add anal-chem --kind crossref --issn 0003-2700",
+                 "ruru feeds remove anal-chem"],
+                [read])
+    fsub = p.add_subparsers(dest="feeds_command", metavar="ACTION", parser_class=_Parser)
+
+    def feeds_command(name: str, func: Handler, help: str, examples: Sequence[str],
+                      parents: Sequence[argparse.ArgumentParser] = ()) -> argparse.ArgumentParser:
+        fp = fsub.add_parser(name, help=help, description=help, formatter_class=_Formatter,
+                             epilog=_examples(*examples), parents=[common, *parents])  # type: ignore[list-item]
+        fp.set_defaults(func=func)
+        return fp
+
+    fp = feeds_command("list", cmd_feeds_list, "list feeds and when each was last fetched",
+                       ["ruru feeds list", "ruru feeds list --json"], [read])
+    fp = feeds_command("add", cmd_feeds_add, "add a feed to ruru.toml",
+                       ["ruru feeds add arxiv-chem --kind arxiv --query 'cat:physics.chem-ph AND abs:GC-MS'",
+                        "ruru feeds add anal-chem --kind crossref --issn 0003-2700 --title 'Analytical Chemistry'",
+                        "ruru feeds add supervisors --kind openalex --filter 'authorships.author.id:A5077569089'",
+                        "ruru feeds add rt-alignment --kind openalex --search 'retention time alignment'",
+                        "ruru feeds add jat --kind rss --url https://example.org/feed.xml"],
+                       [write, quiet])
+    fp.add_argument("name", help="lowercase letters, digits and hyphens")
+    fp.add_argument("--kind", required=True, choices=feeds.KINDS)
+    fp.add_argument("--query", help="arxiv: an arXiv API search_query")
+    fp.add_argument("--filter", help="openalex: an OpenAlex works filter")
+    fp.add_argument("--search", help="openalex: a phrase matched in titles and abstracts")
+    fp.add_argument("--issn", help="crossref: the journal's ISSN")
+    fp.add_argument("--url", help="rss: the feed URL")
+    fp.add_argument("--title", help="a label, e.g. the journal's name")
+    fp = feeds_command("remove", cmd_feeds_remove, "remove a feed from ruru.toml",
+                       ["ruru feeds remove anal-chem"], [write, quiet])
+    fp.add_argument("name")
+    feeds_command("wizard", cmd_feeds_wizard,
+                  "interactive setup: find arXiv categories, journals and authors (needs a terminal)",
+                  ["ruru feeds wizard"])
+
+    p = command("find", cmd_find, "search OpenAlex for papers not yet in the library",
+                ["ruru find retention time alignment gc-ms", "ruru find 'fish oil authentication' -n 20 --json",
+                 "ruru find 'joint alignment GC-MS batches' -q | head -1 | xargs ruru add"],
+                [read])
+    p.add_argument("query", nargs="+")
+    p.add_argument("-n", "--number", type=int, default=10, metavar="N", help="results (default 10, max 100)")
 
     p = command("refresh", cmd_refresh, "re-resolve metadata (e.g. a preprint since published); keys never change",
                 ["ruru refresh", "ruru refresh guillevic2021automated --dry-run", "ruru refresh --json"],

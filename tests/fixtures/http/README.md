@@ -20,4 +20,17 @@ Real responses from the arXiv, Crossref and OpenAlex APIs, recorded on 2026-10-1
 | `openalex_title_attention_article.json` | the same, `,type:article` |
 | `openalex_title_fragment.json` | `works?filter=title.search:automated fragment identification for electron ionisation mass spectrometry` |
 
+| `openalex_sources_analchem.json` | `api.openalex.org/sources?search=analytical chemistry` (wizard) |
+| `openalex_authors_xue.json` | `api.openalex.org/authors?search=Bing Xue` (wizard; two namesakes at VUW) |
+| `openalex_feed_author.json` | `works?filter=authorships.author.id:A5077569089,from_publication_date:2026-09-01` |
+| `openalex_feed_search.json` | `works?filter=title_and_abstract.search:"retention time alignment",from_publication_date:2026-01-01` (trimmed to 5 results) |
+| `openalex_find.json` | `works?search=retention time alignment gc-ms&per-page=5` |
+| `crossref_journal_analchem.json` | `api.crossref.org/journals/0003-2700/works?filter=from-created-date:2026-10-12` (trimmed to 5 items, `reference` lists removed) |
+| `rss_wiley_jat.xml` | Journal of Applied Toxicology RSS (Wiley; DOIs in `prism:doi`), trimmed to 3 items |
+| `crossref_wiley_{1,2,3}.json` | Crossref records for those three DOIs |
+| `rss_sciencedirect_jca.xml` | Journal of Chromatography A RSS (ScienceDirect; no DOIs), trimmed to 3 items |
+
+ACS's RSS (`pubs.acs.org/action/showFeed…`) answers scripts with a Cloudflare challenge (403), so
+it is not recorded; tests simulate that failure.
+
 Synthetic responses (429s, 5xx, malformed bodies, PDF bytes) are built inline in the tests.

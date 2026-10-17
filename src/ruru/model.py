@@ -124,7 +124,7 @@ def loads(text: str) -> Paper:
     return from_front_matter(fm, text[end + 5:])
 
 
-def _dump_value(key: str, value: Any) -> str:
+def dump_value(key: str, value: Any) -> str:
     width = 2**31 - 1
     if isinstance(value, list | dict):
         # Flow style for lists and the ids mapping: one line each, as in the README example.
@@ -134,7 +134,7 @@ def _dump_value(key: str, value: Any) -> str:
 
 
 def dumps(paper: Paper) -> str:
-    fm = "".join(_dump_value(k, v) for k, v in paper.front_matter().items())
+    fm = "".join(dump_value(k, v) for k, v in paper.front_matter().items())
     return f"---\n{fm}---\n{paper.body}"
 
 

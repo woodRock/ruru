@@ -20,6 +20,7 @@ def atomic_write(path: Path, data: str | bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
     try:
+        os.fchmod(fd, _mode(path))  # mkstemp makes 0600 files; keep the usual permissions
         with os.fdopen(fd, "wb") as f:
             f.write(data.encode("utf-8") if isinstance(data, str) else data)
             f.flush()
@@ -29,6 +30,15 @@ def atomic_write(path: Path, data: str | bytes) -> None:
         with contextlib.suppress(FileNotFoundError):
             os.unlink(tmp)
         raise
+
+
+def _mode(path: Path) -> int:
+    try:
+        return path.stat().st_mode & 0o777
+    except FileNotFoundError:
+        umask = os.umask(0)
+        os.umask(umask)
+        return 0o666 & ~umask
 
 
 def lock_timeout() -> float:

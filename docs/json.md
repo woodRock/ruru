@@ -44,4 +44,22 @@ Every front matter field of `paper.md`, in this order, then two derived fields.
 | `ruru show KEY --json` | one paper object with `notes` and `agent_notes`; exit 1 if the key is unknown |
 | `ruru refresh --json` | array, one object per paper attempted: `key`, `error` (string \| null), `changes` (`{field: {"old": …, "new": …}}`, empty when up to date). Exit 3 if any failed. With `--dry-run` nothing is written. |
 
-Inbox items, `check` reports and `export json` are documented here as they land (M3–M4).
+| `ruru inbox --json` | array of inbox item objects, newest first; `[]` (exit 2) if empty |
+| `ruru show ID --json` | one inbox item object, for an id still in the inbox |
+| `ruru fetch --json` | `{"feeds": [{"name", "new", "seen", "error"}], "new": [inbox ids]}`; exit 3 if any feed failed |
+| `ruru feeds --json` | array of feed objects (the `[[feeds]]` fields in ruru.toml) plus `last_fetch` (date \| null) |
+| `ruru find QUERY --json` | array of found works: bibliographic fields as in a paper object (no `key`, `status`, `tags`, `projects`, `added`, `read_on`, `source`), plus `id` (`doi:…`, `arXiv:…` or an OpenAlex id: what to pass to `ruru add`) and `in_library` (key \| null) |
+
+## Inbox item object
+
+| key | type | notes |
+|---|---|---|
+| `id` | string | stable within the inbox: `arxiv-2610.01234`, `doi-10.1021-acs.analchem.6c03760`, `oa-W…`, `rss-…` |
+| `title` … `abstract` | | the bibliographic fields of a paper object, same types |
+| `source` | string | `feed:<name>` |
+| `published` | date \| null | as the feed reports it |
+| `fetched` | date | |
+| `suggestion` | object \| null | `{"action": "keep" \| "skip" \| "later", "reason": string, "by": string, "date": date}` |
+| `path` | string | relative to the library root |
+
+`check` reports and `export json` are documented here as they land (M4).

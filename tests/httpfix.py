@@ -73,4 +73,28 @@ def standard(router: Router) -> Router:
              "openalex_title_attention.json")
         .add(r"api\.openalex\.org/works\?filter=title\.search%3AAutomated\+fragment\+identification",
              "openalex_title_fragment.json")
+        # feeds (M3)
+        .add(r"export\.arxiv\.org/api/query\?search_query=cat", "arxiv_search_chem.xml")
+        .add(r"api\.crossref\.org/journals/0003-2700/works", "crossref_journal_analchem.json")
+        .add(r"api\.openalex\.org/works\?filter=authorships\.author\.id%3AA5077569089",
+             "openalex_feed_author.json")
+        .add(r"api\.openalex\.org/works\?filter=title_and_abstract\.search", "openalex_feed_search.json")
+        .add(r"rss\.sciencedirect\.com/publication/science/00219673", "rss_sciencedirect_jca.xml")
+        .add(r"onlinelibrary\.wiley\.com/feed/10991263", "rss_wiley_jat.xml")
+        .add(r"api\.crossref\.org/works/10\.1002/jat\.70464", "crossref_wiley_1.json")
+        .add(r"api\.crossref\.org/works/10\.1002/jat\.70468", "crossref_wiley_2.json")
+        .add(r"api\.crossref\.org/works/10\.1002/jat\.70478", "crossref_wiley_3.json")
+        .add(r"api\.openalex\.org/works/doi:10\.1002/", status=404, body="Not Found")
+        .add(r"api\.openalex\.org/sources\?", "openalex_sources_analchem.json")
+        .add(r"api\.openalex\.org/authors\?", "openalex_authors_xue.json")
+        .add(r"api\.openalex\.org/works\?search=", "openalex_find.json")
     )
+
+FEEDS = {
+    "arxiv-chem": ["--kind", "arxiv", "--query", 'cat:physics.chem-ph AND abs:chromatography'],
+    "anal-chem": ["--kind", "crossref", "--issn", "0003-2700", "--title", "Analytical Chemistry"],
+    "xue": ["--kind", "openalex", "--filter", "authorships.author.id:A5077569089"],
+    "rt-alignment": ["--kind", "openalex", "--search", "retention time alignment"],
+    "jca": ["--kind", "rss", "--url", "https://rss.sciencedirect.com/publication/science/00219673"],
+    "jat": ["--kind", "rss", "--url", "https://analyticalsciencejournals.onlinelibrary.wiley.com/feed/10991263/most-recent"],
+}

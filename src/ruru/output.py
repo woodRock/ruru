@@ -6,8 +6,10 @@ import json
 import os
 import sys
 from datetime import date
+from pathlib import Path
 from typing import Any, TextIO
 
+from ruru.inbox import Item
 from ruru.model import Paper
 
 _CODES = {"bold": "1", "dim": "2", "cyan": "36", "green": "32", "yellow": "33", "red": "31"}
@@ -54,3 +56,20 @@ def paper_line(p: Paper) -> str:
     status = style(f"{p.status:<8}", _STATUS_COLOR.get(p.status, "dim"))
     tags = style(" ".join(f"#{t}" for t in p.tags), "dim") if p.tags else ""
     return f"{key} {p.year or '----'}  {status} {p.title}  {tags}".rstrip()
+
+
+def item_json(item: Item, root: Path) -> dict[str, Any]:
+    out = {k: _iso(v) for k, v in item.front_matter().items()}
+    if out.get("suggestion"):
+        out["suggestion"] = {k: _iso(v) for k, v in out["suggestion"].items()}
+    out["path"] = str(item.path.relative_to(root)) if item.path else None
+    return out
+
+
+def item_line(item: Item) -> str:
+    p = item.paper
+    feed = style(f"[{p.source.removeprefix('feed:')}]", "dim")
+    line = f"{style(f'{item.id:<32}', 'bold')} {p.year or '----'}  {p.title}  {feed}"
+    if s := item.suggestion:
+        line += "  " + style(f"→ {s.get('action')}: {s.get('reason')}", "yellow")
+    return line

@@ -45,8 +45,13 @@ expanded under `nohup`).
 
 ## Architecture
 
-M0–M2 done. Next: M3 feeds and inbox (incl. `ruru feeds wizard`), M4 projects (`ruru project add`,
-`cite`, `check`), M5 skill and docs, M6 TUI. Update this section as each lands.
+M0–M3 done. Next: M4 projects (`ruru project add`, `cite`, `check`), M5 skill and docs, M6 TUI.
+Update this section as each lands.
+
+Additions beyond the brief: `ruru find` (OpenAlex search for papers not yet in the library), `ruru show`
+accepts inbox ids, `crossref` feeds (journal by ISSN; more reliable than publisher RSS, which ACS
+blocks with a bot check), OpenAlex `search` feeds use the `title_and_abstract.search` phrase
+filter (plain `search=` is too loose for a feed).
 
 Decisions beyond the brief (Jesse, 2026-10-17): `bib_encoding = "ascii"` by default (he uses Overleaf
 with classic BibTeX styles); feeds are set up by an interactive `ruru feeds wizard`, the one command
@@ -81,6 +86,19 @@ the user config is `~/.config/ruru/config.toml` on macOS too.
   accepts exactly one exact-title match, collapsing only records that share an id, `refresh` also
   looks for a same-title published article), `merge` (fill gaps), `apply_metadata` (only
   `METADATA` fields + ids; never erases), `changes`.
+- `inbox.py`: `Item` (paper + id, fetched, published, suggestion), `dumps`/`loads` (front matter only,
+  `ITEM_FIELDS` order), `item_id`, `Inbox` (`inbox/<fetched>/<id>.md`), seen.jsonl
+  (`seen_record`, `read_seen`, `append_seen`), `Deduper` (the `same_paper` rule as set lookups over
+  library + inbox + seen).
+- `feeds.py`: `Feed` (validated `[[feeds]]` entry), kinds arxiv | openalex | crossref | rss,
+  `fetch(client, feed, since) -> [Candidate]` (RSS entries with a DOI come back as stubs with
+  `needs_resolve`), state in `.ruru/feeds.json` (`since_for`: first fetch 7 days, then last − 1 day).
+- `tomledit.py`: append/remove one table in ruru.toml, keeping Jesse's comments.
+- `ops.py`: operations shared by CLI and TUI: `fetch` (dedupe, resolve new RSS DOIs, one commit,
+  state only for feeds that succeeded), `triage` (keep/later/skip + seen.jsonl), `suggest`,
+  `add_feed`/`remove_feed`.
+- `wizard.py`: `ruru feeds wizard` (the only prompting command; refuses without a TTY). Injected
+  `ask`/`say` for tests; every feed goes through `ops.add_feed`.
 - `search.py`: linear, accent-insensitive AND search with field weights.
 - `output.py`: colour (`style`), `paper_json` (the docs/json.md schema), `paper_line`.
 - `cli.py`: network work happens before `lib.transaction()` (never hold the lock across HTTP), and

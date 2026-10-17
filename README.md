@@ -9,8 +9,9 @@ Markdown files with YAML front matter in a git repository, and flow into each pa
 Agents such as Claude Code use exactly the same CLI.
 
 > **Status:** early development. Working: the library (`init`, `add`, `list`, `show`, `search`,
-> `tag`, `status`, `note`) and metadata resolution (`add DOI|ARXIV|URL|"TITLE"`, `refresh`, `pdf`).
-> Feeds and the inbox, projects (`cite`, `check`) and the TUI come next.
+> `tag`, `status`, `note`), metadata resolution (`add DOI|ARXIV|URL|"TITLE"`, `refresh`, `pdf`,
+> `find`), and feeds with an inbox (`feeds`, `fetch`, `inbox`, `keep`, `later`, `skip`, `suggest`).
+> Projects (`cite`, `check`) and the TUI come next.
 
 ## Install
 
@@ -64,6 +65,35 @@ ruru status wood2026joint read
 ruru note wood2026joint                    # your notes, in $EDITOR
 ```
 
+## Feeds and the inbox
+
+```bash
+ruru feeds wizard                          # interactive: arXiv categories, journals, authors, topics
+ruru fetch                                 # new items only: not in the library, inbox or seen.jsonl
+ruru inbox                                 # newest first; `ruru show ID` for the abstract
+ruru keep doi-10.1021-acs.analchem.6c03760 -t gc-ms
+ruru later arxiv-2610.01234                # kept, with status `later`
+ruru skip arxiv-2610.01235                 # remembered, never fetched again
+```
+
+Feed kinds, all declared in `ruru.toml` (the wizard writes them; so does `ruru feeds add`):
+
+| kind | follows | example |
+|---|---|---|
+| `arxiv` | an arXiv API query | `query = "cat:physics.chem-ph AND abs:chromatography"` |
+| `crossref` | a journal, by ISSN | `issn = "0003-2700"` (Analytical Chemistry) |
+| `openalex` | authors, venues, or a phrase in titles and abstracts | `filter = "authorships.author.id:A5077569089"`, `search = "retention time alignment"` |
+| `rss` | an RSS/Atom feed | `url = "https://rss.sciencedirect.com/publication/science/00219673"` |
+
+Journals are best followed through `crossref` (some publishers, e.g. ACS, put their RSS behind a
+bot check, which ruru reports as a failed feed). A feed's first fetch looks back 7 days; later
+fetches start a day before the previous one. One failing feed never stops the others; it makes
+the exit code 3. ruru has no daemon: schedule `ruru fetch` with cron, launchd or a Claude
+scheduled task.
+
+To look for papers outside your feeds: `ruru find retention time alignment gc-ms` (OpenAlex), then
+`ruru add` the id it prints.
+
 ## Adding papers and keeping them current
 
 ```bash
@@ -97,7 +127,8 @@ Every command runs without a terminal and never prompts. `--json` on read comman
 [docs/json.md](docs/json.md)), `-q` prints keys only, warnings go to stderr, and colour appears only
 on a TTY without `NO_COLOR`. Exit codes: 0 OK, 1 usage error or unknown key, 2 nothing matched,
 3 partial failure, 4 library locked by another ruru process. Agents add notes with
-`ruru note KEY --agent -m TEXT`, which never touches your `## Notes` section.
+`ruru note KEY --agent -m TEXT`, which never touches your `## Notes` section, and recommend triage
+decisions with `ruru suggest ID keep|skip|later --reason TEXT`, which you see in `ruru inbox`.
 
 *To come in M5:* the skill in `skills/ruru/` and the Claude Code permission rules.
 

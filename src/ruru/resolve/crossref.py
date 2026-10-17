@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import html
 import re
+from datetime import date
 from typing import Any
 from urllib.parse import quote
 
@@ -65,3 +66,29 @@ def to_paper(m: dict[str, Any]) -> Paper:
 def lookup(client: Client, doi: str) -> Paper:
     data = client.get_json(f"{API}/{quote(doi, safe='/()')}", what=f"doi:{doi}")
     return to_paper(data["message"])
+
+
+def _date(m: dict[str, Any]) -> date | None:
+    for key in ("published", "issued", "created"):
+        parts = ((m.get(key) or {}).get("date-parts") or [[]])[0]
+        if parts and parts[0]:
+            y, mo, d = (list(parts) + [1, 1])[:3]
+            return date(int(y), int(mo or 1), int(d or 1))
+    return None
+
+
+def journal_feed(client: Client, issn: str, *, since: date, limit: int = 200,
+                 page_size: int = 100) -> list[tuple[Paper, date | None]]:
+    """A journal's works registered on or after `since`, newest first."""
+    params: dict[str, Any] = {"filter": f"from-created-date:{since.isoformat()}", "rows": min(limit, page_size),
+                              "sort": "created", "order": "desc", "cursor": "*"}
+    out: list[tuple[Paper, date | None]] = []
+    while len(out) < limit:
+        url = f"https://api.crossref.org/journals/{issn}/works"
+        msg = client.get_json(url, params, what=f"ISSN {issn}")["message"]
+        items = msg.get("items", [])
+        out += [(to_paper(m), _date(m)) for m in items]
+        if not items or not msg.get("next-cursor") or len(items) < params["rows"]:
+            break
+        params["cursor"] = msg["next-cursor"]
+    return out[:limit]

@@ -15,6 +15,17 @@ def test_atomic_write_replaces_and_leaves_no_temp(tmp_path):
     assert os.listdir(path.parent) == ["file.md"]
 
 
+def test_atomic_write_permissions(tmp_path):
+    new = tmp_path / "new.md"
+    atomic_write(new, "x")
+    umask = os.umask(0)
+    os.umask(umask)
+    assert new.stat().st_mode & 0o777 == 0o666 & ~umask  # not mkstemp's 0600
+    new.chmod(0o640)
+    atomic_write(new, b"y")
+    assert new.stat().st_mode & 0o777 == 0o640 and new.read_bytes() == b"y"
+
+
 def test_atomic_write_failure_keeps_old_file(tmp_path, monkeypatch):
     path = tmp_path / "file.md"
     atomic_write(path, "old")

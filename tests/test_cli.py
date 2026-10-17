@@ -1,3 +1,4 @@
+import argparse
 import subprocess
 import sys
 
@@ -27,10 +28,15 @@ def test_usage_error_exits_1_not_2(capsys):
 
 
 def test_every_help_ends_with_examples():
-    parser = cli.build_parser()
-    helps = [parser.format_help()]
-    for action in parser._subparsers._group_actions:  # type: ignore[union-attr]
-        helps += [p.format_help() for p in action.choices.values()]
+    def walk(parser):
+        yield parser
+        for action in parser._actions:
+            if isinstance(action, argparse._SubParsersAction):
+                for sub in action.choices.values():
+                    yield from walk(sub)
+
+    helps = [p.format_help() for p in walk(cli.build_parser())]
+    assert len(helps) > 20
     for text in helps:
         tail = text.rstrip().split("\n\n")[-1]
         assert tail.startswith("examples:"), text

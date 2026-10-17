@@ -40,6 +40,12 @@ class Transaction:
         atomic_write(path, text)
         self.touched.append(path)
 
+    def remove(self, path: Path) -> None:
+        path.unlink(missing_ok=True)
+        self.touched.append(path)
+        with contextlib.suppress(OSError):
+            path.parent.rmdir()  # an emptied inbox/<date>/ directory
+
     def save(self, paper: Paper) -> None:
         """Write paper.md and regenerate paper.bib from it."""
         d = self.library.paper_dir(paper.key)
