@@ -215,7 +215,8 @@ def test_end_to_end(tmp_path, run, net, monkeypatch):
     paper = tmp_path / "paper"
     paper.mkdir()
     (paper / "main.tex").write_text(f"As in \\cite{{{key}}}.\n")
-    assert run("project", "add", "tox-review", "--path", str(paper), "--bib", "refs.bib", "--tex", "main.tex").code == 0
+    r = run("project", "add", "tox-review", "--path", str(paper), "--bib", "refs.bib", "--tex", "main.tex")
+    assert r.code == 0
     assert run("check", "tox-review").code == cli.NO_MATCH  # cited, not yet in refs.bib
     assert run("check", "tox-review", "--fix").code == cli.OK
     assert f"@article{{{key}," in (paper / "refs.bib").read_text()
