@@ -20,10 +20,10 @@ from ruru import model
 from ruru import projects as projmod
 from ruru.bibtex import to_bibtex
 from ruru.config import SETTINGS_FILE
-from ruru.errors import RuruError, UsageError
+from ruru.errors import NothingMatched, RuruError, UsageError
 from ruru.feeds import Feed
-from ruru.fsutil import atomic_write
-from ruru.http import Client
+from ruru.fsutil import atomic_write, library_lock
+from ruru.http import Client, HttpError
 from ruru.inbox import DECISIONS, Deduper, Inbox, Item, append_seen, dumps, item_id, read_seen, seen_record
 from ruru.keys import base_key, unique_key
 from ruru.library import Library
@@ -322,3 +322,65 @@ def rekey(lib: Library, old: str, new: str | None = None) -> tuple[str, list[str
         with contextlib.suppress(OSError):
             old_dir.rmdir()
     return new, list(paper.projects)
+
+
+# --- paper edits (shared by `tag`, `status`, `note`, `pdf` and the TUI) ---------------------------
+
+def tag(lib: Library, keys: Sequence[str], add: Sequence[str] = (),
+        remove: Sequence[str] = ()) -> list[model.Paper]:
+    if not keys or not (add or remove):
+        raise UsageError("usage: ruru tag KEY… +TAG… -TAG…")
+    papers = [lib.get(k) for k in keys]  # unknown keys fail before anything is written
+    ops = " ".join([f"+{t}" for t in add] + [f"-{t}" for t in remove])
+    with lib.transaction(f"ruru: tag {' '.join(keys)} {ops}") as tx:
+        for p in papers:
+            p.tags = sorted((set(p.tags) | set(add)) - set(remove))
+            tx.save(p)
+    return papers
+
+
+def set_status(lib: Library, keys: Sequence[str], status: str) -> list[model.Paper]:
+    papers = [lib.get(k) for k in keys]
+    with lib.transaction(f"ruru: status {' '.join(keys)} {status}") as tx:
+        for p in papers:
+            lib.set_status(p, status)
+            tx.save(p)
+    return papers
+
+
+def set_notes(lib: Library, key: str, text: str) -> bool:
+    """Replace Jesse's `## Notes` section. False (and nothing written) if it is unchanged."""
+    paper = lib.get(key)
+    if text.strip("\n") == paper.notes:
+        return False
+    with lib.transaction(f"ruru: notes {key}") as tx:
+        paper.body = model.set_notes(paper.body, text)
+        tx.save(paper)
+    return True
+
+
+def fetch_pdf(lib: Library, client: Client, key: str, *, force: bool = False) -> Path:
+    """Download the open-access PDF to paper.pdf (git-ignored), finding its URL first if needed."""
+    paper = lib.get(key)
+    path = lib.paper_dir(key) / "paper.pdf"
+    if path.exists() and not force:
+        return path
+    url = paper.pdf_url
+    if not url:
+        url = Resolver(client).refresh(paper).pdf_url
+        if url:
+            with lib.transaction(f"ruru: pdf_url {key}") as tx:
+                current = lib.get(key)
+                current.pdf_url = url
+                tx.save(current)
+    if not url:
+        raise NothingMatched(f"{key}: no open-access PDF known")
+    print(f"fetching {url}", file=sys.stderr)
+    response = client.get(url)
+    if response.status_code != 200:
+        raise HttpError(f"HTTP {response.status_code} for {url}")
+    if not response.content.startswith(b"%PDF"):
+        raise HttpError(f"not a PDF: {url} (a landing page or a paywall?)")
+    with library_lock(lib.root):
+        atomic_write(path, response.content)
+    return path

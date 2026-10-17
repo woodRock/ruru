@@ -45,7 +45,7 @@ expanded under `nohup`).
 
 ## Architecture
 
-M0–M5 done. Next: M6 TUI. Later: `related`, `export site|pdf`, PDF text extraction for search,
+M0–M6 done (v1). Later: `related`, `export site|pdf`, PDF text extraction for search,
 inbox ranking by similarity to the library.
 Update this section as each lands.
 
@@ -114,6 +114,12 @@ the user config is `~/.config/ruru/config.toml` on macOS too.
 - `skills/ruru/SKILL.md`: the agent-facing workflows and rules. `tests/test_skill_docs.py` checks
   that every `ruru …` it (and the README, docs, this file) shows as code exists, and that the
   README's permission rules deny keep/skip/cite. Update the skill when commands change.
+- `tui.py`: Textual app (`RuruApp`), only imported by `cli.cmd_tui`. Tabs Inbox / Library /
+  Projects; every action calls `ops` (`triage`, `suggest`, `tag`, `set_status`, `set_notes`,
+  `fetch_pdf`, `fetch`, `check`); network work runs in `@work(thread=True)` workers. `fingerprint`
+  (mtimes of `.git/index`, settings, seen.jsonl, papers/, inbox/ dirs) is polled every 2 s to reload
+  on outside changes. `open_file`/`webbrowser.open`/`cli.edit_text` are the seams tests patch.
+  Pilot tests in `tests/test_tui.py` (run synchronously via `asyncio.run`; no pytest plugin).
 - `wizard.py`: `ruru feeds wizard` (the only prompting command; refuses without a TTY). Injected
   `ask`/`say` for tests; every feed goes through `ops.add_feed`.
 - `search.py`: linear, accent-insensitive AND search with field weights.

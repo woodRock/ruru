@@ -25,7 +25,7 @@ from ruru import projects as projmod
 from ruru.bibtex import ENCODINGS, parse_bibtex, to_bibtex
 from ruru.config import config_path, resolve_library, secret, write_user_config
 from ruru.errors import LOCKED, NO_MATCH, OK, PARTIAL, USAGE, NothingMatched, RuruError, UsageError
-from ruru.fsutil import atomic_write, library_lock
+from ruru.fsutil import atomic_write
 from ruru.inbox import DECISIONS, Inbox, Item, UnknownItem, read_seen
 from ruru.library import Library
 from ruru.model import Paper
@@ -65,7 +65,7 @@ def _rel(lib: Library, key: str) -> str:
     return str((lib.paper_dir(key) / "paper.md").relative_to(lib.root))
 
 
-def _client(lib: Library) -> http.Client:
+def client_for(lib: Library) -> http.Client:
     return http.Client(email=lib.settings.contact_email, openalex_key=secret("openalex_api_key"),
                        cache_dir=lib.root / ".ruru" / "http")
 
@@ -150,7 +150,7 @@ def cmd_add(args: argparse.Namespace) -> int:
             raise UsageError(f"no BibTeX entries in {args.bib}")
     elif args.ident:
         entries = []
-        with _client(lib) as client:  # network first, outside the lock
+        with client_for(lib) as client:  # network first, outside the lock
             resolver = Resolver(client)
             for text in args.ident:
                 try:
@@ -293,33 +293,20 @@ def cmd_tag(args: argparse.Namespace) -> int:
     keys = [i for i in items if not (len(i) > 1 and i[0] in "+-")]
     add = [_tag(i[1:]) for i in items if len(i) > 1 and i[0] == "+"]
     remove = [_tag(i[1:]) for i in items if len(i) > 1 and i[0] == "-"]
-    if not keys or not (add or remove):
-        raise UsageError("usage: ruru tag KEY… +TAG… -TAG…")
     args.no_commit = args.no_commit or no_commit
-    lib = _open(args)
-    papers = [lib.get(k) for k in keys]  # unknown keys fail before anything is written
-    with lib.transaction() as tx:
-        for p in papers:
-            p.tags = sorted((set(p.tags) | set(add)) - set(remove))
-            tx.save(p)
-            print(p.key if quiet else f"{p.key}: {' '.join(p.tags) or '(no tags)'}")
-        ops = " ".join([f"+{t}" for t in add] + [f"-{t}" for t in remove])
-        tx.message = f"ruru: tag {' '.join(keys)} {ops}"
+    for p in ops.tag(_open(args), keys, add, remove):
+        print(p.key if quiet else f"{p.key}: {' '.join(p.tags) or '(no tags)'}")
     return OK
 
 
 def cmd_status(args: argparse.Namespace) -> int:
-    lib = _open(args)
-    papers = [lib.get(k) for k in args.keys]
-    with lib.transaction(f"ruru: status {' '.join(args.keys)} {args.status}") as tx:
-        for p in papers:
-            lib.set_status(p, args.status)
-            tx.save(p)
-            print(p.key if args.quiet else f"{p.key}: {p.status}")
+    for p in ops.set_status(_open(args), args.keys, args.status):
+        print(p.key if args.quiet else f"{p.key}: {p.status}")
     return OK
 
 
-def _edit(text: str) -> str:
+def edit_text(text: str) -> str:
+    """Open `text` in $VISUAL/$EDITOR (vi) and return what was saved. Used by `note` and the TUI."""
     editor = os.environ.get("VISUAL") or os.environ.get("EDITOR") or "vi"
     with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False, encoding="utf-8") as f:
         f.write(text + "\n" if text else "")
@@ -357,13 +344,8 @@ def cmd_note(args: argparse.Namespace) -> int:
     if not sys.stdin.isatty():
         raise UsageError("`ruru note KEY` opens $EDITOR and needs a terminal; "
                          "agents use `ruru note KEY --agent -m …`")
-    new = _edit(p.notes)
-    if new.strip("\n") == p.notes:
+    if not ops.set_notes(lib, p.key, edit_text(p.notes)):
         print("notes unchanged", file=sys.stderr)
-        return OK
-    with lib.transaction(f"ruru: notes {p.key}") as tx:
-        p.body = model.set_notes(p.body, new)
-        tx.save(p)
     return OK
 
 
@@ -378,7 +360,7 @@ def cmd_refresh(args: argparse.Namespace) -> int:
     results: list[dict[str, object]] = []
     fresh: dict[str, Paper] = {}
     failures: list[RuruError] = []
-    with _client(lib) as client:  # network first, outside the lock
+    with client_for(lib) as client:  # network first, outside the lock
         resolver = Resolver(client)
         for p in papers:
             try:
@@ -425,25 +407,8 @@ def cmd_pdf(args: argparse.Namespace) -> int:
     p = lib.get(args.key)
     path = lib.paper_dir(p.key) / "paper.pdf"
     if args.fetch and (args.force or not path.exists()):
-        with _client(lib) as client:
-            url = p.pdf_url
-            if not url:
-                url = Resolver(client).refresh(p).pdf_url
-                if url:
-                    with lib.transaction(f"ruru: pdf_url {p.key}") as tx:
-                        current = lib.get(p.key)
-                        current.pdf_url = url
-                        tx.save(current)
-            if not url:
-                raise NothingMatched(f"{p.key}: no open-access PDF known")
-            print(f"fetching {url}", file=sys.stderr)
-            response = client.get(url)
-            if response.status_code != 200:
-                raise http.HttpError(f"HTTP {response.status_code} for {url}")
-            if not response.content.startswith(b"%PDF"):
-                raise http.HttpError(f"not a PDF: {url} (a landing page or a paywall?)")
-            with library_lock(lib.root):
-                atomic_write(path, response.content)  # git-ignored: never committed
+        with client_for(lib) as client:
+            ops.fetch_pdf(lib, client, p.key, force=args.force)
     if not path.exists():
         raise NothingMatched(f"{p.key}: no PDF; try `ruru pdf {p.key} --fetch`")
     if args.open:
@@ -468,7 +433,7 @@ def cmd_fetch(args: argparse.Namespace) -> int:
     selected = _feed_list(lib, args.feed or [])
     if not selected:
         raise UsageError("no feeds yet: run `ruru feeds wizard` or `ruru feeds add …`")
-    with _client(lib) as client:
+    with client_for(lib) as client:
         results, items = ops.fetch(lib, client, selected, since=args.since)
     for r in results:
         if r.error:
@@ -584,14 +549,14 @@ def cmd_feeds_wizard(args: argparse.Namespace) -> int:
     from ruru.wizard import Wizard
 
     lib = _open(args)
-    with _client(lib) as client:
+    with client_for(lib) as client:
         Wizard(client, feeds.load(lib.settings.feeds), lambda f: ops.add_feed(lib, f)).run()
     return OK
 
 
 def cmd_find(args: argparse.Namespace) -> int:
     lib = _open(args)
-    with _client(lib) as client:
+    with client_for(lib) as client:
         found = openalex.search(client, " ".join(args.query), per_page=args.number)
     known = list(lib.papers())
     rows = []
@@ -763,7 +728,7 @@ def cmd_tui(args: argparse.Namespace) -> int:
     except ImportError:
         print("ruru tui needs the optional extra: pip install 'ruru[tui]'", file=sys.stderr)
         return USAGE
-    return int(tui.run(args))  # pragma: no cover - lands in M6
+    return int(tui.run(args))
 
 
 # --- parser --------------------------------------------------------------------------------------

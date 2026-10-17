@@ -8,8 +8,8 @@ Papers arrive from feeds (arXiv, OpenAlex, Crossref, journal RSS), get triaged l
 Markdown files with YAML front matter in a git repository, and flow into each paper repo's `.bib`.
 Agents such as Claude Code use exactly the same CLI.
 
-> **Status:** the CLI is complete for v1 (library, resolvers, feeds and inbox, paper repos,
-> export, the Claude Code skill). The optional terminal UI (`ruru tui`) is next.
+> **Status:** v1 is complete: the CLI (library, resolvers, feeds and inbox, paper repos, export),
+> the Claude Code skill, and the optional terminal UI (`ruru tui`).
 
 ## Install
 
@@ -106,6 +106,21 @@ scheduled task.
 
 To look for papers outside your feeds: `ruru find retention time alignment gc-ms` (OpenAlex), then
 `ruru add` the id it prints.
+
+## The terminal UI
+
+`ruru tui` (needs the `[tui]` extra) shows the inbox, the library and your projects side by side
+with details, and reloads by itself when an agent, a scheduled fetch or the CLI changes the
+library. Every key calls the same code as the CLI, so each action is committed as usual.
+
+| where | keys |
+|---|---|
+| everywhere | `1` `2` `3` tabs · `j`/`k` move · `/` filter (`t:TAG p:PROJECT s:STATUS f:FEED` and words) · `r` reload · `q` quit |
+| Inbox | `y` keep · `n` skip · `l` later · `a` accept the agent's suggestion · `t` keep with tags · `p` keep for a project · `o` open URL · `f` fetch |
+| Library | `enter` open · `t` tag (`+a -b`) · `s` status · `e` edit your notes in `$EDITOR` · `d` PDF (open, or fetch the open-access one) · `o` open URL |
+| Projects | reading list and citation check per project · `c` re-check |
+
+In the inbox, `+`, `-` and `~` mark items an agent suggested keeping, skipping or reading later.
 
 ## Export
 
