@@ -37,3 +37,24 @@ def commit(root: Path, paths: Sequence[Path], message: str) -> bool:
         print(f"ruru: warning: git commit failed: {res.stderr.strip() or res.stdout.strip()}", file=sys.stderr)
         return False
     return True
+
+
+def log(root: Path, limit: int = 50) -> list[dict[str, str]]:
+    """Recent commits, newest first: {"date": ISO 8601, "message": subject}. [] outside a repo."""
+    if not is_repo(root):
+        return []
+    res = _git(root, "log", f"-{limit}", "--format=%aI%x1f%s")
+    return [dict(zip(("date", "message"), line.split("\x1f", 1))) for line in res.stdout.splitlines() if line]
+
+
+def status(root: Path) -> list[str]:
+    """`git status --porcelain` lines (uncommitted changes, untracked files)."""
+    return [line for line in _git(root, "status", "--porcelain").stdout.splitlines() if line]
+
+
+def identity(root: Path) -> str | None:
+    """Who commits would be by, resolved as git does (config or GIT_* variables); None if unknown."""
+    res = _git(root, "var", "GIT_COMMITTER_IDENT")
+    if res.returncode != 0 or ">" not in res.stdout:
+        return None
+    return res.stdout.split(">", 1)[0] + ">"

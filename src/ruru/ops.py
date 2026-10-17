@@ -5,7 +5,9 @@ Network work happens before any lock is taken; each operation then writes in one
 
 from __future__ import annotations
 
+import contextlib
 import json
+import re
 import sys
 import tomllib
 from collections.abc import Sequence
@@ -23,6 +25,7 @@ from ruru.feeds import Feed
 from ruru.fsutil import atomic_write
 from ruru.http import Client
 from ruru.inbox import DECISIONS, Deduper, Inbox, Item, append_seen, dumps, item_id, read_seen, seen_record
+from ruru.keys import base_key, unique_key
 from ruru.library import Library
 from ruru.projects import BibFile, Project, Report, bib_encoding, duplicate_keys, entry_keys, scan_tex
 from ruru.resolve import Resolver, merge
@@ -289,3 +292,33 @@ def _check(lib: Library, project: Project | None, mains: list[Path]) -> Report:
                           if lib.exists(k) and entry.strip() != to_bibtex(lib.get(k), encoding).strip())
     report.duplicates = duplicate_keys(text) if text else []
     return report
+
+
+# --- rekey ---------------------------------------------------------------------------------------
+
+_KEY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_:.+-]*$")
+
+
+def rekey(lib: Library, old: str, new: str | None = None) -> tuple[str, list[str]]:
+    """Rename a paper's key (the only way a key ever changes). `new` defaults to the key its
+    current metadata would get. Returns (new key, projects whose .tex and .bib still say `old`)."""
+    paper = lib.get(old)
+    taken = set(lib.keys()) - {old}
+    new = new or unique_key(base_key(paper.authors, paper.year, paper.title), taken)
+    if not _KEY.match(new):
+        raise UsageError(f"{new!r} is not a usable BibTeX key")
+    if new == old:
+        raise UsageError(f"{old} already has that key")
+    if new in taken:
+        raise UsageError(f"key {new!r} is already taken")
+    old_dir, new_dir = lib.paper_dir(old), lib.paper_dir(new)
+    with lib.transaction(f"ruru: rekey {old} -> {new}") as tx:
+        paper.key = new
+        tx.save(paper)
+        for name in ("paper.md", "paper.bib"):
+            tx.remove(old_dir / name)
+        if (old_dir / "paper.pdf").exists():
+            (old_dir / "paper.pdf").rename(new_dir / "paper.pdf")  # git-ignored: just moved
+        with contextlib.suppress(OSError):
+            old_dir.rmdir()
+    return new, list(paper.projects)

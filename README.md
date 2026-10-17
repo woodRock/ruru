@@ -8,10 +8,8 @@ Papers arrive from feeds (arXiv, OpenAlex, Crossref, journal RSS), get triaged l
 Markdown files with YAML front matter in a git repository, and flow into each paper repo's `.bib`.
 Agents such as Claude Code use exactly the same CLI.
 
-> **Status:** early development. Working: the library (`init`, `add`, `list`, `show`, `search`,
-> `tag`, `status`, `note`), metadata resolution (`add DOI|ARXIV|URL|"TITLE"`, `refresh`, `pdf`,
-> `find`), and feeds with an inbox (`feeds`, `fetch`, `inbox`, `keep`, `later`, `skip`, `suggest`).
-> and paper repos (`project`, `cite`, `check`). The TUI comes next.
+> **Status:** the CLI is complete for v1 (library, resolvers, feeds and inbox, paper repos,
+> export, the Claude Code skill). The optional terminal UI (`ruru tui`) is next.
 
 ## Install
 
@@ -26,7 +24,22 @@ when dependencies change). Without uv: `python3.11 -m pip install --user -e "/pa
 
 ## Quick start
 
-*To come in M5.*
+```bash
+ruru init ~/papers --email you@example.org   # a git repo; becomes your default library
+ruru feeds wizard                            # follow journals, authors, topics, arXiv categories
+ruru fetch                                   # pull new papers into the inbox
+ruru inbox                                   # triage: ruru show ID, then keep / later / skip
+ruru keep doi-10.1021-acs.analchem.6c03760 -t gc-ms
+ruru add 2103.13807                          # or add anything directly: DOI, arXiv id, URL, title
+ruru search retention time alignment         # your library: metadata and notes
+ruru project add my-paper --path ~/my-paper --bib refs.bib --tex main.tex
+ruru cite my-paper guillevic2021automated    # into refs.bib, inside ruru's managed block
+ruru check my-paper                          # missing, unused, stale, duplicate citations
+ruru doctor                                  # is everything set up and reachable?
+```
+
+Every command's `-h` ends with examples. Schedule `ruru fetch` daily: see
+[docs/scheduling.md](docs/scheduling.md).
 
 ## The library on disk
 
@@ -46,7 +59,7 @@ A library is a git repository (default `~/papers`; set in `~/.config/ruru/config
 ```
 
 - **Keys** look like `wood2026joint`: first author's surname, year, first significant title word.
-  Clashes get `a`, `b`, …. A key never changes once assigned.
+  Clashes get `a`, `b`, …. A key never changes unless you run `ruru rekey KEY [NEW]`.
 - **BibTeX** is ASCII with LaTeX escapes by default (`{\=a}`), which classic BibTeX on Overleaf
   needs; set `bib_encoding = "utf8"` for biber/biblatex.
 - **Git:** every change is committed (only the files it touched), e.g. `ruru: tag wood2026joint
@@ -93,6 +106,16 @@ scheduled task.
 
 To look for papers outside your feeds: `ruru find retention time alignment gc-ms` (OpenAlex), then
 `ruru add` the id it prints.
+
+## Export
+
+```bash
+ruru export json -o ~/papers/exports/library.json   # everything: library, inbox, feeds, projects, activity
+ruru export bib -p joint-align > joint-align.bib    # a selection as BibTeX (-t, -p, -s)
+```
+
+`export json` uses the same shapes as `--json` ([docs/json.md](docs/json.md)); later views, such as a
+static page to read on a phone, are generated from it. `exports/` is git-ignored.
 
 ## Paper repos: `cite` and `check`
 
@@ -158,7 +181,47 @@ on a TTY without `NO_COLOR`. Exit codes: 0 OK, 1 usage error or unknown key, 2 n
 `ruru note KEY --agent -m TEXT`, which never touches your `## Notes` section, and recommend triage
 decisions with `ruru suggest ID keep|skip|later --reason TEXT`, which you see in `ruru inbox`.
 
-*To come in M5:* the skill in `skills/ruru/` and the Claude Code permission rules.
+### The Claude Code skill
+
+[skills/ruru/SKILL.md](skills/ruru/SKILL.md) teaches an agent the workflows (weekly triage, finding
+and summarising papers, choosing citations, checking a paper repo) and the rules: cite only keys
+that exist, say whether a summary comes from the abstract or the full text, never invent anything.
+Install it for every project by linking it into your Claude Code skills directory:
+
+```bash
+mkdir -p ~/.claude/skills && ln -s /path/to/ruru/skills/ruru ~/.claude/skills/ruru
+```
+
+The link follows the checkout, so the skill stays in step with the CLI it describes.
+
+### Permissions
+
+`keep`, `skip` and `cite` are your decisions. A CLI can't tell an agent from you, so the boundary is
+a Claude Code permission rule. In `~/.claude/settings.json` (or a project's `.claude/settings.json`):
+
+```json
+{
+  "permissions": {
+    "allow": [
+      "Bash(ruru list:*)", "Bash(ruru show:*)", "Bash(ruru search:*)", "Bash(ruru find:*)",
+      "Bash(ruru inbox:*)", "Bash(ruru feeds list:*)", "Bash(ruru project list:*)",
+      "Bash(ruru doctor:*)", "Bash(ruru export:*)",
+      "Bash(ruru fetch:*)", "Bash(ruru suggest:*)", "Bash(ruru note:*)", "Bash(ruru tag:*)",
+      "Bash(ruru later:*)"
+    ],
+    "deny": [
+      "Bash(ruru keep:*)", "Bash(ruru skip:*)", "Bash(ruru cite:*)",
+      "Bash(ruru feeds add:*)", "Bash(ruru feeds remove:*)",
+      "Bash(ruru project add:*)", "Bash(ruru project remove:*)"
+    ]
+  }
+}
+```
+
+Everything else (`add`, `refresh`, `pdf --fetch`, `status`, `check`) asks first. `check` stays off
+the allow list because `check --fix` cites. The rules match the start of the command, so agents
+should not put options before the subcommand (`ruru -L … keep` would slip past a deny rule); the
+skill tells them not to, and every agent write is a git commit you can inspect and revert.
 
 ## Development
 

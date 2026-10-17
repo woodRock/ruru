@@ -45,7 +45,8 @@ expanded under `nohup`).
 
 ## Architecture
 
-M0–M4 done. Next: M5 skill, docs, `export bib|json`; M6 TUI.
+M0–M5 done. Next: M6 TUI. Later: `related`, `export site|pdf`, PDF text extraction for search,
+inbox ranking by similarity to the library.
 Update this section as each lands.
 
 Additions beyond the brief: `ruru find` (OpenAlex search for papers not yet in the library), `ruru show`
@@ -104,6 +105,15 @@ the user config is `~/.config/ruru/config.toml` on macOS too.
   `duplicate_keys`. `ops.cite` regenerates every managed entry from the library, leaves keys
   defined outside the block and unknown managed keys alone, writes the paper repo's .bib without
   committing there, and adds the project to the papers' `projects`. `ops.check(fix, prune)`.
+- `export/`: `export_document` (`ruru export json`: library, inbox, feeds, projects, git activity,
+  in the `--json` shapes; `schema_version`), `export_bib`. Exporters only read; keep it that way.
+- `doctor.py`: `run(root, offline)` → `Check(name, status ok|warn|fail, detail)`; includes
+  paper.bib-in-step-with-paper.md (ruru has no index, so that is the consistency check).
+- `ops.rekey`: the only way a key changes; moves the directory (and the git-ignored PDF), commits,
+  and reports the projects whose .tex/.bib still use the old key.
+- `skills/ruru/SKILL.md`: the agent-facing workflows and rules. `tests/test_skill_docs.py` checks
+  that every `ruru …` it (and the README, docs, this file) shows as code exists, and that the
+  README's permission rules deny keep/skip/cite. Update the skill when commands change.
 - `wizard.py`: `ruru feeds wizard` (the only prompting command; refuses without a TTY). Injected
   `ask`/`say` for tests; every feed goes through `ops.add_feed`.
 - `search.py`: linear, accent-insensitive AND search with field weights.

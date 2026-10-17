@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import importlib
+import json
 import os
 import shlex
 import subprocess
@@ -708,6 +709,54 @@ def cmd_check(args: argparse.Namespace) -> int:
     return NO_MATCH if report.issues else OK
 
 
+def cmd_export(args: argparse.Namespace) -> int:
+    from ruru.export import export_bib, export_document
+
+    lib = _open(args)
+    if args.format == "json":
+        text = json.dumps(export_document(lib, notes=not args.no_notes), ensure_ascii=False, indent=2) + "\n"
+    elif args.format == "bib":
+        papers = [p for p in lib.papers()
+                  if all(_tag(t) in p.tags for t in args.tag or [])
+                  and (not args.project or args.project in p.projects)
+                  and (not args.status or p.status == args.status)]
+        if not papers:
+            raise NothingMatched("no papers matched")
+        text = export_bib(papers, args.bib_encoding or lib.settings.bib_encoding)
+    else:  # pragma: no cover - argparse restricts the choices
+        raise UsageError(f"unknown format {args.format}")
+    if args.output and args.output != "-":
+        out = Path(args.output).expanduser()
+        atomic_write(out, text)
+        print(f"wrote {out}", file=sys.stderr)
+    else:
+        sys.stdout.write(text)
+    return OK
+
+
+def cmd_doctor(args: argparse.Namespace) -> int:
+    from ruru import doctor
+
+    checks = doctor.run(resolve_library(args.library), offline=args.offline)
+    if args.json:
+        emit_json([c.to_json() for c in checks])
+    else:
+        colour = {"ok": "green", "warn": "yellow", "fail": "red"}
+        for c in checks:
+            print(f"{style(f'{c.status:<5}', colour[c.status])} {c.name:<18} {c.detail}")
+    return PARTIAL if any(c.status == "fail" for c in checks) else OK
+
+
+def cmd_rekey(args: argparse.Namespace) -> int:
+    lib = _open(args)
+    new, cited_in = ops.rekey(lib, args.old, args.new)
+    print(new if args.quiet else f"{args.old} -> {new}")
+    for project in cited_in:
+        warn(f"{project}: replace \\cite{{{args.old}}} with \\cite{{{new}}} in its .tex, "
+             f"then `ruru check {project} --fix --prune`")
+    return OK
+
+
 def cmd_tui(args: argparse.Namespace) -> int:
     try:
         tui = importlib.import_module("ruru.tui")  # lazy: the core never imports Textual
@@ -965,6 +1014,30 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--fix", action="store_true",
                    help="cite missing keys the library has; regenerate stale entries")
     p.add_argument("--prune", action="store_true", help="drop managed entries that nothing cites")
+
+    p = command("export", cmd_export, "export the library: bib (a selection) or json (everything)",
+                ["ruru export json -o ~/papers/exports/library.json",
+                 "ruru export bib -p joint-align > joint-align.bib",
+                 "ruru export bib -t gc-ms --bib-encoding utf8 -o gcms.bib"])
+    p.add_argument("format", choices=["bib", "json"])
+    p.add_argument("-o", "--output", metavar="FILE", help="write to FILE instead of stdout")
+    p.add_argument("-t", "--tag", action="append", metavar="TAG", help="bib: must have this tag (repeatable)")
+    p.add_argument("-p", "--project", metavar="PROJECT", help="bib: only this project's papers")
+    p.add_argument("-s", "--status", choices=model.STATUSES, help="bib: only this status")
+    p.add_argument("--bib-encoding", choices=ENCODINGS, help="bib: override ruru.toml")
+    p.add_argument("--no-notes", action="store_true", help="json: leave out notes and agent notes")
+
+    p = command("rekey", cmd_rekey, "rename a paper's key (keys never change otherwise)",
+                ["ruru rekey smith2020deep smith2020deepnets",
+                 "ruru rekey vaswani2025attention     (new key from its current metadata)"],
+                [write, quiet])
+    p.add_argument("old", metavar="KEY")
+    p.add_argument("new", nargs="?", metavar="NEW", help="default: the key its current metadata gives")
+
+    p = command("doctor", cmd_doctor, "check config, settings, git, files and API access (exit 3 on failures)",
+                ["ruru doctor", "ruru doctor --offline --json"],
+                [read])
+    p.add_argument("--offline", action="store_true", help="skip the API checks")
 
     p = command("refresh", cmd_refresh, "re-resolve metadata (e.g. a preprint since published); keys never change",
                 ["ruru refresh", "ruru refresh guillevic2021automated --dry-run", "ruru refresh --json"],

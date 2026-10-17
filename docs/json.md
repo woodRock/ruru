@@ -86,4 +86,22 @@ Every front matter field of `paper.md`, in this order, then two derived fields.
 }
 ```
 
-`export json` is documented here when it lands (M5).
+| `ruru doctor --json` | array of `{"name", "status": "ok" \| "warn" \| "fail", "detail"}`; exit 3 if any failed |
+
+## Export document (`ruru export json`)
+
+```json
+{
+  "schema_version": 1,
+  "generated": "2026-10-17T08:29:52+00:00",
+  "library": [ … ],     // paper objects, as `ruru show KEY --json` (with notes and agent_notes;
+                        // without them under --no-notes), sorted by key
+  "inbox": [ … ],       // inbox item objects, as `ruru inbox --json`
+  "feeds": [ … ],       // as `ruru feeds --json`
+  "projects": [ … ],    // as `ruru project --json`
+  "activity": [{"date": "2026-10-17T20:31:02+13:00", "message": "ruru: keep wood2026joint"}]
+                        // the library's last 100 commits, newest first
+}
+```
+
+`schema_version` changes only when a key is renamed or removed; new keys may appear at any time.

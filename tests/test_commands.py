@@ -250,3 +250,29 @@ def test_corrupt_paper_is_a_clear_error(stocked, run):
     (stocked / "papers" / "wood2026joint" / "paper.md").write_text("oops")
     r = run("list")
     assert r.code == cli.USAGE and "papers/wood2026joint/paper.md" in r.err
+
+
+def test_rekey(stocked, run, monkeypatch):
+    d = stocked / "papers"
+    (d / "wood2026joint" / "paper.pdf").write_bytes(b"%PDF")
+    run("note", "wood2026joint", "--agent", "-m", "Keep me.")
+    r = run("rekey", "wood2026joint", "wood2026jointalign")
+    assert (r.code, r.out) == (0, "wood2026joint -> wood2026jointalign\n")
+    assert not (d / "wood2026joint").exists() and (d / "wood2026jointalign" / "paper.pdf").exists()
+    p = json.loads(run("show", "wood2026jointalign", "--json").out)
+    assert p["key"] == "wood2026jointalign" and "Keep me." in p["agent_notes"]
+    assert "@article{wood2026jointalign," in (d / "wood2026jointalign" / "paper.bib").read_text()
+    assert git_log(stocked)[0] == "ruru: rekey wood2026joint -> wood2026jointalign"
+    assert run("show", "wood2026joint").code == cli.USAGE
+    # Default: the key the metadata gives now.
+    assert run("rekey", "wood2026jointalign", "-q").out == "wood2026joint\n"
+    for bad in (["wood2026joint", "wood2026joint"], ["wood2026joint", "nunez2025survey"],
+                ["wood2026joint", "has space"], ["nope"]):
+        assert run("rekey", *bad).code == cli.USAGE
+
+
+def test_rekey_warns_about_projects(stocked, run, tmp_path):
+    run("project", "add", "p", "--path", str(tmp_path), "--bib", "r.bib")
+    run("cite", "p", "wood2026joint")
+    r = run("rekey", "wood2026joint", "wood2026x")
+    assert "p: replace \\cite{wood2026joint} with \\cite{wood2026x}" in r.err
