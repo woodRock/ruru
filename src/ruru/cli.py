@@ -798,7 +798,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     parser = _Parser(
         prog="ruru",
-        description=logo.plain(logo.SMALL) + "\n\nA local, plain-text literature library with a feed inbox.",
+        description="A local, plain-text literature library with a feed inbox.",
         formatter_class=_Formatter,
         epilog=_examples(
             "ruru init ~/papers --email you@example.org",

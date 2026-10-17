@@ -46,6 +46,7 @@ def test_bare_ruru_colours_banner_on_a_tty(run, monkeypatch):
     assert "\033[" not in run().err
 
 
-def test_help_carries_the_owl_in_plain_text(run):
+def test_help_has_no_owl(run):
+    """Bare `ruru` shows the banner once; `-h` stays plain argparse text (no second, uncoloured owl)."""
     r = run("-h")
-    assert "(◉)(◉)" in r.out and "\033[" not in r.out
+    assert "◉" not in r.out and "\033[" not in r.out
