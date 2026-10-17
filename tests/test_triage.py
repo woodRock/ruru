@@ -319,3 +319,56 @@ def test_wizard_command(lib, run, net, monkeypatch):
 def test_slug():
     assert slug("Analytical Chemistry: A Journal!") == "analytical-chemistry-a-journal"
     assert slug("!!!") == "feed"
+
+
+def test_agent_skip_is_attributed_and_listed(filled, run, monkeypatch):
+    ids = run("inbox", "-q").out.split()
+    run("suggest", ids[0], "skip", "--reason", "biosensor; off topic", "--by", "claude")
+    monkeypatch.setenv("RURU_AGENT", "claude")
+    r = run("skip", ids[0], ids[1], "--reason", "explicit reason")
+    assert r.code == 0
+    assert git_log(filled)[0] == f"ruru: skip {ids[0]} {ids[1]} (by claude)"
+    monkeypatch.delenv("RURU_AGENT")
+    run("skip", ids[2])  # Jesse, by hand
+    # An agent applying its own suggestion inherits the suggestion's reason.
+    run("suggest", ids[3], "skip", "--reason", "off topic: food processing", "--by", "claude")
+    run("skip", ids[3], "--by", "claude")
+    rows = json.loads(run("seen", "--json").out)
+    assert [r["id"] for r in rows] == [ids[3], ids[2], ids[1], ids[0]]  # newest first
+    assert rows[0]["by"] == "claude" and rows[0]["reason"] == "off topic: food processing"
+    assert "by" not in rows[1] and "reason" not in rows[1]
+    assert rows[2]["reason"] == "explicit reason"
+    assert run("seen", "--by", "claude", "-q").out.split() == [ids[3], ids[1], ids[0]]
+    assert run("seen", "-d", "keep").code == cli.NO_MATCH
+    assert run("seen", "--since", "2999-01-01", "--json").out.strip() == "[]"
+    assert len(run("seen", "-n", "2", "-q").out.split()) == 2
+    assert "(claude: off topic: food processing)" in run("seen").out
+
+
+def test_unskip_restores_from_git(filled, run, net):
+    ids = run("inbox", "-q").out.split()
+    original = (filled / inbox.Inbox(filled).get(ids[0]).path.relative_to(filled)).read_text()
+    run("skip", ids[0], ids[1], "--by", "claude", "--reason", "off topic")
+    run("keep", ids[2])
+    assert ids[0] not in run("inbox", "-q").out
+    r = run("unskip", ids[0])
+    assert r.code == 0 and r.out.startswith(f"restored {ids[0]}: ")
+    restored = inbox.Inbox(filled).get(ids[0])
+    assert restored.path.read_text() == original
+    assert git_log(filled)[0] == f"ruru: unskip {ids[0]}"
+    seen = [s["id"] for s in inbox.read_seen(filled)]
+    assert ids[0] not in seen and ids[1] in seen  # only the undone skip is forgotten
+    assert run("unskip", ids[0]).code == cli.USAGE  # already back in the inbox
+    r = run("unskip", ids[2])
+    assert r.code == cli.USAGE and "was not skipped: keep" in r.err
+    assert "no skipped inbox item" in run("unskip", "doi-10.9999-never").err
+    assert run("unskip", ids[1], "-q").out == f"{ids[1]}\n"
+
+
+def test_unskip_needs_git(tmp_path, run):
+    root = tmp_path / "plain"
+    run("init", str(root))
+    import shutil
+    shutil.rmtree(root / ".git")
+    r = run("-L", str(root), "unskip", "x")
+    assert r.code == cli.USAGE and "not a git repository" in r.err

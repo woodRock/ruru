@@ -12,12 +12,13 @@ with examples. This skill is about workflow and judgement.
 
 ## Ground rules
 
-- **Read freely; write only through** `ruru note KEY --agent`, `ruru tag`, `ruru later`,
-  `ruru suggest` and `ruru fetch`.
-- **Never run `ruru keep`, `ruru skip` or `ruru cite`**, and never `ruru check --fix`/`--prune`
-  (they cite). Those are Jesse's decisions; recommend them with `ruru suggest`, or tell him the
-  exact command to run. Don't change feeds or projects (`ruru feeds add/remove`,
-  `ruru project add/remove`) unless he asks.
+- **Read freely; write only through** `ruru note KEY --agent`, `ruru tag`, `ruru suggest`,
+  `ruru fetch`, and `ruru skip`/`ruru unskip` for inbox items (see "Weekly triage").
+- **Never add to the library or a paper: never run `ruru keep`, `ruru later` or `ruru cite`**, and
+  never `ruru check --fix`/`--prune` (they cite). `later` counts: it puts the paper in the library.
+  Those are Jesse's decisions; recommend them with `ruru suggest`, or tell him the exact command to
+  run. Don't change feeds or projects (`ruru feeds add/remove`, `ruru project add/remove`) unless
+  he asks.
 - **Never edit library files directly.** Everything goes through the CLI, which locks, writes
   atomically and commits each change, so Jesse can see and revert what you did.
 - **Use `--json`** for anything you parse, and `-q` for keys to chain. The schema is in the repo's
@@ -44,14 +45,23 @@ with examples. This skill is about workflow and judgement.
 1. `ruru fetch` (exit 3 means some feed failed: mention which, carry on with the rest).
 2. `ruru inbox --json` and read every title and abstract. Start with the targeted feeds
    (`ruru inbox -f rt-alignment --json` etc.); the journal feeds are high volume.
-3. For each item, `ruru suggest ID keep|skip|later --reason "…"`. Make the reason one line, tied to
-   Jesse's work: name the project or method it bears on (`ruru project list --json` lists projects;
-   `ruru list --json` shows what he already keeps and tags). Suggest `skip` liberally for the
-   off-topic bulk of the journal feeds; save `keep` for papers he would cite or read this month.
-   Use `later` for relevant but not urgent.
-4. Summarise for Jesse: a short list of the keeps with their reasons, the count of skips, and
-   anything surprising. He accepts with `ruru keep …`/`ruru skip …`; you can print those commands
-   ready to paste, e.g. `ruru inbox -q --suggested skip | xargs ruru skip`.
+3. Decide each item against Jesse's interests (fish and food chemistry with AI, GC-MS, REIMS and
+   other ambient MS, retention-time alignment, chemometrics; `ruru project list --json` and
+   `ruru list --json` show his projects and what he keeps):
+   - **Clearly off topic: skip it yourself**, in batches, always attributed and explained:
+     `ruru skip ID… --by claude --reason "…"`. Group items that share a reason into one command
+     (one commit). Skip only when you are confident from what you read; the journal feeds are
+     mostly off-topic bulk.
+   - **Possibly relevant: suggest, never skip.** `ruru suggest ID keep --reason "…"` for papers he
+     would cite or read this month, `ruru suggest ID later --reason "…"` for relevant but not
+     urgent. Tie each reason to a project or method. When unsure between skip and later, suggest
+     later: a wrong skip hides a paper, a wrong suggestion costs him a glance.
+   - Say what each judgement rests on: end reasons with "(title only)" when there was no abstract.
+4. Summarise for Jesse: the suggested keeps with their reasons, the suggested laters, how many you
+   skipped (and the main reasons), and anything surprising. Remind him he can audit and undo:
+   `ruru seen -d skip --by claude` lists your skips, `ruru unskip ID` restores one. He accepts
+   suggestions with `ruru keep $(ruru inbox -q --suggested keep)` (likewise `later`), or `a` in
+   `ruru tui`.
 
 ## Finding and reading papers
 

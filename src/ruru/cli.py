@@ -497,7 +497,8 @@ def _triage(args: argparse.Namespace, decision: str) -> int:
     lib = _open(args)
     tags = [_tag(t) for t in getattr(args, "tag", None) or []]
     projects = getattr(args, "project", None) or []
-    for item, key in ops.triage(lib, args.ids, decision, tags=tags, projects=projects):
+    reason, by = getattr(args, "reason", None), getattr(args, "by", None)
+    for item, key in ops.triage(lib, args.ids, decision, tags=tags, projects=projects, reason=reason, by=by):
         if args.quiet:
             print(key or item.id)
         else:
@@ -515,6 +516,39 @@ def cmd_later(args: argparse.Namespace) -> int:
 
 def cmd_skip(args: argparse.Namespace) -> int:
     return _triage(args, "skip")
+
+
+def cmd_unskip(args: argparse.Namespace) -> int:
+    lib = _open(args)
+    for item in ops.unskip(lib, args.ids):
+        print(item.id if args.quiet else f"restored {item.id}: {item.paper.title}")
+    return OK
+
+
+def cmd_seen(args: argparse.Namespace) -> int:
+    lib = _open(args)
+    records = [r for r in reversed(read_seen(lib.root))
+               if (not args.decision or r.get("decision") == args.decision)
+               and (not args.by or r.get("by") == args.by)
+               and (not args.since or str(r.get("date", "")) >= args.since.isoformat())]
+    if args.number:
+        records = records[:args.number]
+    if args.json:
+        emit_json(records)
+    elif args.quiet:
+        for r in records:
+            print(r.get("id"))
+    else:
+        for r in records:
+            who = f"  ({r['by']}: {r.get('reason', '')})" if r.get("by") else ""
+            key = f" -> {r['key']}" if r.get("key") else ""
+            print(f"{r.get('date')}  {r.get('decision'):<5} {r.get('id')}{key}  {r.get('title', '')}"
+                  + style(who, "dim"))
+    if not records:
+        if not args.json:
+            print("no decisions match", file=sys.stderr)
+        return NO_MATCH
+    return OK
 
 
 def cmd_suggest(args: argparse.Namespace) -> int:
@@ -890,9 +924,29 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument("-p", "--project", action="append", metavar="PROJECT", help="repeatable")
 
     p = command("skip", cmd_skip, "drop inbox items (remembered in seen.jsonl, never fetched again)",
-                ["ruru skip arxiv-2610.01234", "ruru inbox -q --suggested skip | xargs ruru skip"],
+                ["ruru skip arxiv-2610.01234", "ruru inbox -q --suggested skip | xargs ruru skip",
+                 "ruru skip doi-10.1016-x --by claude --reason 'biosensor; off topic'   (an agent)",
+                 "ruru unskip doi-10.1016-x                                             (undo)"],
                 [write, quiet])
     p.add_argument("ids", nargs="+", metavar="ID")
+    p.add_argument("--reason", help="why (recorded in seen.jsonl; agents should always give one)")
+    p.add_argument("--by", default=os.environ.get("RURU_AGENT") or None,
+                   help="who decided (default: $RURU_AGENT; unset means you)")
+
+    p = command("unskip", cmd_unskip, "undo skips: put items back in the inbox (from git history)",
+                ["ruru unskip doi-10.1016-j.foodchem.2026.151560",
+                 "ruru seen -d skip --by claude -q | head -5 | xargs ruru unskip"],
+                [write, quiet])
+    p.add_argument("ids", nargs="+", metavar="ID")
+
+    p = command("seen", cmd_seen, "past triage decisions, newest first (seen.jsonl)",
+                ["ruru seen -n 20", "ruru seen -d skip --by claude --since 2026-10-17",
+                 "ruru seen --json"],
+                [read])
+    p.add_argument("-d", "--decision", choices=DECISIONS)
+    p.add_argument("--by", metavar="NAME", help="only decisions made by this agent")
+    p.add_argument("--since", type=_date, metavar="DATE", help="on or after DATE (YYYY-MM-DD)")
+    p.add_argument("-n", "--number", type=int, metavar="N", help="at most N")
 
     p = command("suggest", cmd_suggest, "record a recommendation on an inbox item (for agents)",
                 ["ruru suggest arxiv-2610.01234 keep --reason 'GC-MS alignment; relevant to joint-align'",

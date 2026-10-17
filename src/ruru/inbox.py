@@ -121,11 +121,18 @@ class Inbox:
 
 # --- seen.jsonl ----------------------------------------------------------------------------------
 
-def seen_record(item: Item, decision: str, key: str | None = None) -> dict[str, Any]:
-    return {
+def seen_record(item: Item, decision: str, key: str | None = None, *, reason: str | None = None,
+                by: str | None = None) -> dict[str, Any]:
+    """One seen.jsonl line. `by` and `reason` are set when an agent made the decision."""
+    record = {
         "id": item.id, "decision": decision, "date": model.today().isoformat(), "key": key,
         "ids": {k: v for k, v in item.paper.ids.items() if v}, "title": item.paper.title, "year": item.paper.year,
     }
+    if by:
+        record["by"] = by
+    if reason:
+        record["reason"] = reason
+    return record
 
 
 def read_seen(root: Path) -> list[dict[str, Any]]:

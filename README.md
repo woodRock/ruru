@@ -211,8 +211,11 @@ The link follows the checkout, so the skill stays in step with the CLI it descri
 
 ### Permissions
 
-`keep`, `skip` and `cite` are your decisions. A CLI can't tell an agent from you, so the boundary is
-a Claude Code permission rule. In `~/.claude/settings.json` (or a project's `.claude/settings.json`):
+Adding to your library (`keep`, `later`) and to a paper (`cite`) are your decisions. Agents may skip
+inbox items, attributed and explained (`ruru skip ID --by claude --reason …`), so you don't wade
+through the off-topic bulk yourself; `ruru seen -d skip --by claude` lists what they skipped and
+`ruru unskip ID` restores any of it. A CLI can't tell an agent from you, so the boundary is a Claude
+Code permission rule. In `~/.claude/settings.json` (or a project's `.claude/settings.json`):
 
 ```json
 {
@@ -222,10 +225,10 @@ a Claude Code permission rule. In `~/.claude/settings.json` (or a project's `.cl
       "Bash(ruru inbox:*)", "Bash(ruru feeds list:*)", "Bash(ruru project list:*)",
       "Bash(ruru doctor:*)", "Bash(ruru export:*)",
       "Bash(ruru fetch:*)", "Bash(ruru suggest:*)", "Bash(ruru note:*)", "Bash(ruru tag:*)",
-      "Bash(ruru later:*)"
+      "Bash(ruru skip:*)", "Bash(ruru unskip:*)", "Bash(ruru seen:*)"
     ],
     "deny": [
-      "Bash(ruru keep:*)", "Bash(ruru skip:*)", "Bash(ruru cite:*)",
+      "Bash(ruru keep:*)", "Bash(ruru later:*)", "Bash(ruru cite:*)",
       "Bash(ruru feeds add:*)", "Bash(ruru feeds remove:*)",
       "Bash(ruru project add:*)", "Bash(ruru project remove:*)"
     ]

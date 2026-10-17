@@ -16,7 +16,7 @@ from datetime import date
 from pathlib import Path
 
 from ruru import feeds as feedmod
-from ruru import model
+from ruru import gitops, model
 from ruru import projects as projmod
 from ruru.bibtex import to_bibtex
 from ruru.config import SETTINGS_FILE
@@ -91,9 +91,11 @@ def fetch(lib: Library, client: Client, feeds: Sequence[Feed], *, since: date | 
 
 
 def triage(lib: Library, ids: Sequence[str], decision: str, *, tags: Sequence[str] = (),
-           projects: Sequence[str] = ()) -> list[tuple[Item, str | None]]:
+           projects: Sequence[str] = (), reason: str | None = None,
+           by: str | None = None) -> list[tuple[Item, str | None]]:
     """keep / later move items into the library (status to-read / later); skip drops them.
-    Every decision is recorded in seen.jsonl. Returns (item, key or None)."""
+    Every decision is recorded in seen.jsonl, with `by` and `reason` when an agent decided (an
+    agent applying its own suggestion inherits the suggestion's reason). Returns (item, key or None)."""
     if decision not in DECISIONS:
         raise UsageError(f"decision must be one of {', '.join(DECISIONS)}")
     lib.check_projects(list(projects))
@@ -118,12 +120,44 @@ def triage(lib: Library, ids: Sequence[str], decision: str, *, tags: Sequence[st
                 key = paper.key
             assert item.path is not None
             tx.remove(item.path)
-            records.append(seen_record(item, decision, key))
+            why = reason
+            if by and not why and item.suggestion and item.suggestion.get("action") == decision:
+                why = str(item.suggestion.get("reason") or "") or None
+            records.append(seen_record(item, decision, key, reason=why, by=by))
             out.append((item, key))
         tx.write(lib.root / "seen.jsonl", append_seen(lib.root, records))
         labels = f" (tags: {', '.join(tags)})" if tags else ""
-        tx.message = f"ruru: {decision} {_summary([k or i.id for i, k in out])}{labels}"
+        who = f" (by {by})" if by else ""
+        tx.message = f"ruru: {decision} {_summary([k or i.id for i, k in out])}{labels}{who}"
     return out
+
+
+def unskip(lib: Library, ids: Sequence[str]) -> list[Item]:
+    """Undo skips: restore each item's inbox file from the commit that removed it, and drop its
+    skip record from seen.jsonl so `fetch` no longer filters it out."""
+    if not gitops.is_repo(lib.root):
+        raise UsageError("unskip restores items from git history, and this library is not a git repository")
+    inbox = Inbox(lib.root)
+    last = {r.get("id"): r for r in read_seen(lib.root)}
+    restored: list[tuple[str, str]] = []
+    for wanted in ids:
+        if inbox.exists(wanted):
+            raise UsageError(f"{wanted} is already in the inbox")
+        record = last.get(wanted)
+        if record and record.get("decision") != "skip":
+            raise UsageError(f"{wanted} was not skipped: {record.get('decision')}"
+                             + (f" -> {record['key']}" if record.get("key") else ""))
+        found = gitops.deleted_file(lib.root, f"inbox/*/{wanted}.md")
+        if not found:
+            raise UsageError(f"no skipped inbox item {wanted!r} in the library's history")
+        restored.append(found)
+    with lib.transaction(f"ruru: unskip {_summary(list(ids))}") as tx:
+        for path, text in restored:
+            tx.write(lib.root / path, text)
+        undo = set(ids)
+        kept = [r for r in read_seen(lib.root) if not (r.get("id") in undo and r.get("decision") == "skip")]
+        tx.write(lib.root / "seen.jsonl", "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in kept))
+    return [inbox.get(i) for i in ids]
 
 
 def suggest(lib: Library, item_id_: str, action: str, reason: str, by: str) -> Item:

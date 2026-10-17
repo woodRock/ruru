@@ -109,6 +109,10 @@ the user config is `~/.config/ruru/config.toml` on macOS too.
   in the `--json` shapes; `schema_version`), `export_bib`. Exporters only read; keep it that way.
 - `doctor.py`: `run(root, offline)` → `Check(name, status ok|warn|fail, detail)`; includes
   paper.bib-in-step-with-paper.md (ruru has no index, so that is the consistency check).
+- Agent decisions: agents may `skip` (never `keep`/`later`/`cite`: adding to the library or a paper
+  is Jesse's). `ops.triage(by=, reason=)` records them in seen.jsonl (an agent applying its own
+  suggestion inherits its reason); `ruru seen` lists decisions; `ops.unskip` restores an item's
+  inbox file from the commit that deleted it (`gitops.deleted_file`) and drops the skip record.
 - `ops.rekey`: the only way a key changes; moves the directory (and the git-ignored PDF), commits,
   and reports the projects whose .tex/.bib still use the old key.
 - `skills/ruru/SKILL.md`: the agent-facing workflows and rules. `tests/test_skill_docs.py` checks

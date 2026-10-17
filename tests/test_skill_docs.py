@@ -64,7 +64,8 @@ def test_every_command_in_the_skill_exists(capsys):
 
 
 def test_skill_forbids_the_decisions_that_are_jesses():
-    assert "Never run `ruru keep`, `ruru skip` or `ruru cite`" in SKILL
+    assert "never run `ruru keep`, `ruru later` or `ruru cite`" in SKILL
+    assert "--by claude --reason" in SKILL and "ruru unskip" in SKILL
     assert "abstract only" in SKILL.lower() and "Never invent a citation" in SKILL
 
 
@@ -79,10 +80,11 @@ def test_readme_permission_rules():
         assert m.group(1) in commands, rule
         if m.group(2):
             assert m.group(2) in commands[m.group(1)], rule
-    for decision in ("keep", "skip", "cite"):
+    for decision in ("keep", "later", "cite"):  # anything that adds to the library or a paper
         assert f"Bash(ruru {decision}:*)" in rules["deny"]
     allowed = {r.split()[1].rstrip(":*)") for r in rules["allow"]}
-    assert not allowed & {"keep", "skip", "cite", "check"}
+    assert not allowed & {"keep", "later", "cite", "check"}
+    assert "skip" in allowed
 
 
 @pytest.mark.parametrize("doc", ["README.md", "docs/scheduling.md", "docs/json.md", "CLAUDE.md"])

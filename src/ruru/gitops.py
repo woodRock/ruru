@@ -47,6 +47,17 @@ def log(root: Path, limit: int = 50) -> list[dict[str, str]]:
     return [dict(zip(("date", "message"), line.split("\x1f", 1))) for line in res.stdout.splitlines() if line]
 
 
+def deleted_file(root: Path, pattern: str) -> tuple[str, str] | None:
+    """(path, text) of the most recent deletion of a file matching `pattern`, from the commit
+    before it was deleted; None if git has no such deletion."""
+    commit = _git(root, "log", "--diff-filter=D", "-n", "1", "--format=%H", "--", pattern).stdout.strip()
+    if not commit:
+        return None
+    names = _git(root, "show", "--diff-filter=D", "--name-only", "--format=", commit, "--", pattern)
+    path = names.stdout.strip().splitlines()[0]
+    return path, _git(root, "show", f"{commit}^:{path}").stdout
+
+
 def status(root: Path) -> list[str]:
     """`git status --porcelain` lines (uncommitted changes, untracked files)."""
     return [line for line in _git(root, "status", "--porcelain").stdout.splitlines() if line]

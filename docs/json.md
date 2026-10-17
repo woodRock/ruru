@@ -86,6 +86,7 @@ Every front matter field of `paper.md`, in this order, then two derived fields.
 }
 ```
 
+| `ruru seen --json` | array of triage records from seen.jsonl, newest first: `id`, `decision` (`keep` \| `skip` \| `later`), `date`, `key` (string \| null), `ids`, `title`, `year`, and `by` and `reason` when an agent decided |
 | `ruru doctor --json` | array of `{"name", "status": "ok" \| "warn" \| "fail", "detail"}`; exit 3 if any failed |
 
 ## Export document (`ruru export json`)
