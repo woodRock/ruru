@@ -204,7 +204,27 @@ def cmd_add(args: argparse.Namespace) -> int:
         elif labelled:
             what += f" + labels on {len(labelled)} existing"
         tx.message = f"ruru: add {what}{details}"
+    if args.bib and added and not args.no_enrich:
+        _enrich_in_background(lib, added, no_commit=getattr(args, "no_commit", False))
     return _exit_code(failures, len(args.ident) if args.ident else len(entries))
+
+
+def spawn(argv: list[str], log: Path) -> None:
+    """Start `argv` detached from this process and its terminal, output appended to `log`.
+    Tests replace this (conftest) so that nothing is ever spawned."""
+    log.parent.mkdir(parents=True, exist_ok=True)
+    with log.open("ab") as out:
+        subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=out, stderr=out, start_new_session=True)
+
+
+def _enrich_in_background(lib: Library, keys: list[str], *, no_commit: bool) -> None:
+    """A BibTeX import stays offline and fast; abstracts and ids are looked up afterwards by a
+    one-off `ruru enrich` that exits when done (not a daemon) and commits on its own."""
+    argv = [sys.executable, "-m", "ruru", "enrich", "-L", str(lib.root), *keys]
+    log = lib.root / ".ruru" / "enrich.log"
+    spawn(argv + (["--no-commit"] if no_commit else []), log)
+    print(f"ruru: looking up abstracts for {len(keys)} paper(s) in the background "
+          f"(log: {log}; `ruru add --no-enrich` to skip)", file=sys.stderr)
 
 
 def cmd_list(args: argparse.Namespace) -> int:
@@ -414,6 +434,28 @@ def cmd_refresh(args: argparse.Namespace) -> int:
             for f, d in shown.items():
                 print(f"  {f}: {_brief(d['old'])} -> {_brief(d['new'])}")
     return _exit_code(failures, len(papers))
+
+
+def cmd_enrich(args: argparse.Namespace) -> int:
+    lib = _open(args)
+    with client_for(lib) as client:
+        results, failures = ops.enrich(lib, client, args.keys, dry_run=args.dry_run)
+    if not results:
+        print("every paper has an abstract", file=sys.stderr)
+        return OK
+    if args.json:
+        emit_json([{"key": r.key, "filled": r.filled, "error": r.error} for r in results])
+    elif args.quiet:
+        for r in results:
+            if r.filled:
+                print(r.key)
+    else:
+        for r in results:
+            if r.error:
+                continue
+            fields = ", ".join(r.filled) or "nothing found to fill"
+            print(f"{style(r.key, 'bold')}: {fields}{' (dry run)' if args.dry_run and r.filled else ''}")
+    return _exit_code(failures, len(results))
 
 
 opener = "open" if sys.platform == "darwin" else "xdg-open"
@@ -847,6 +889,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--arxiv")
     p.add_argument("--url")
     p.add_argument("--abstract")
+    p.add_argument("--no-enrich", action="store_true",
+                   help="with --bib: don't look up abstracts and ids in the background afterwards")
     p.add_argument("-t", "--tag", action="append", metavar="TAG", help="repeatable")
     p.add_argument("-p", "--project", action="append", metavar="PROJECT", help="repeatable")
 
@@ -1080,6 +1124,14 @@ def build_parser() -> argparse.ArgumentParser:
                 [write, read])
     p.add_argument("keys", nargs="*", metavar="KEY", help="default: every paper")
     p.add_argument("-n", "--dry-run", action="store_true", help="show changes without writing them")
+
+    p = command("enrich", cmd_enrich,
+                "fill empty abstracts, ids and other metadata from Crossref/OpenAlex/arXiv; changes nothing set",
+                ["ruru enrich                    every paper without an abstract",
+                 "ruru enrich bvls cow --dry-run", "ruru enrich --json"],
+                [write, read])
+    p.add_argument("keys", nargs="*", metavar="KEY", help="default: every paper without an abstract")
+    p.add_argument("-n", "--dry-run", action="store_true", help="show what would be filled without writing it")
 
     p = command("pdf", cmd_pdf, "print, fetch (open access only) or open a paper's PDF",
                 ["ruru pdf guillevic2021automated", "ruru pdf guillevic2021automated --fetch --open"],

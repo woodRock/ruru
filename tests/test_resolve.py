@@ -1,4 +1,6 @@
 import json
+import sys
+import time
 
 import pytest
 
@@ -7,7 +9,17 @@ from httpfix import FIXTURES, Route, Router
 from ruru import cli, http, model
 from ruru.http import Client, HttpError, NotFound
 from ruru.model import Paper
-from ruru.resolve import AmbiguousTitle, Ident, Resolver, arxiv, crossref, merge, openalex, parse_identifier
+from ruru.resolve import (
+    AmbiguousTitle,
+    Ident,
+    Resolver,
+    arxiv,
+    crossref,
+    fill_gaps,
+    merge,
+    openalex,
+    parse_identifier,
+)
 
 FRAGMENT_PREPRINT = ("Automated fragment identification for electron ionisation mass spectrometry: "
                      "application to atmospheric measurements of halocarbons")
@@ -307,3 +319,96 @@ def test_cli_pdf_failures(lib, run, net):
     assert r.code == cli.PARTIAL and "not a PDF" in r.err
     net.add(r"jcheminf.*", status=403, times=1)
     assert run("pdf", "guillevic2021automated", "--fetch").code == cli.PARTIAL
+
+
+def test_fill_gaps_never_changes_what_is_there():
+    mine = Paper(title="Deep Learning (my casing)", authors=["Y. LeCun"], type="misc", venue="Nature")
+    mine.ids["doi"] = "10.1038/nature14539"
+    found = Paper(title="Deep learning", authors=["Yann LeCun", "Yoshua Bengio"], type="article",
+                  venue="Nature (London)", volume="521", abstract="Deep learning allows…")
+    found.ids.update(doi="10.1038/other", openalex="W1")
+    out = fill_gaps(mine, found)
+    assert (out.title, out.authors, out.type, out.venue) == (mine.title, mine.authors, "misc", "Nature")
+    assert (out.volume, out.abstract) == ("521", "Deep learning allows…")
+    assert out.ids["doi"] == "10.1038/nature14539" and out.ids["openalex"] == "W1"
+    assert mine.abstract is None  # a copy
+
+
+IMPORT_BIB = rf"""
+@article{{lecun2015, author = {{LeCun, Yann and Bengio, Yoshua and Hinton, Geoffrey}},
+  title = {{Deep learning}}, journal = {{Nature}}, year = {{2015}}, doi = {{10.1038/nature14539}}}}
+@article{{guillevic2021, author = {{Guillevic, Myriam}}, title = {{{FRAGMENT_PREPRINT}}}, year = {{2021}}}}
+@misc{{nowhere2020, title = {{Unfindable software}}, year = {{2020}}}}
+"""
+
+
+def test_cli_add_bib_enriches_in_background(lib, run, spawned, tmp_path):
+    bib = tmp_path / "refs.bib"
+    bib.write_text(IMPORT_BIB)
+    r = run("add", "--bib", str(bib), "-q")  # offline: the empty router would fail any request
+    keys = r.out.split()
+    assert r.code == cli.OK and len(keys) == 3 and "in the background" in r.err
+    assert len(spawned) == 1 and spawned[0][2:4] == ["ruru", "enrich"] and spawned[0][-3:] == keys
+    assert run("add", "--bib", str(bib)).code == cli.OK and len(spawned) == 1  # nothing new, nothing started
+    bib.write_text("@misc{x, title = {Another}, year = {2020}}")
+    run("add", "--bib", str(bib), "--no-enrich", "--no-commit")
+    assert len(spawned) == 1
+    run("add", "10.1038/nature14539")  # already in the library; ids never start it
+    assert len(spawned) == 1
+
+
+def test_cli_enrich_fills_gaps_only(lib, run, net, tmp_path):
+    bib = tmp_path / "refs.bib"
+    bib.write_text(IMPORT_BIB)
+    run("add", "--bib", str(bib), "--no-enrich")
+    net.add(r"title\.search%3AUnfindable", body='{"results": []}')
+    r = run("enrich", "--dry-run")
+    assert r.code == cli.PARTIAL and "unfindable" in r.err.lower()
+    assert "guillevic2021automated: url, pdf_url, abstract, ids (dry run)" in r.out
+    assert json.loads(run("show", "guillevic2021automated", "--json").out)["abstract"] is None
+    rows = {row["key"]: row for row in json.loads(run("enrich", "--json").out)}
+    assert rows["anon2020unfindable"]["error"] and rows["anon2020unfindable"]["filled"] == {}
+    assert "abstract" not in rows["lecun2015deep"]["filled"]  # neither Crossref nor OpenAlex has one
+    g = json.loads(run("show", "guillevic2021automated", "--json").out)
+    assert g["abstract"] and (g["title"], g["type"]) == (FRAGMENT_PREPRINT, "article")  # the .bib's, kept
+    assert g["ids"]["arxiv"] == "2103.13807" and g["ids"]["doi"] is None
+    assert json.loads(run("show", "lecun2015deep", "--json").out)["ids"]["openalex"]
+    assert git_log(lib)[0] == "ruru: enrich guillevic2021automated lecun2015deep"
+    r = run("enrich", "-q")  # papers with an abstract are no longer looked up
+    assert r.code == cli.PARTIAL and r.out == "" and "guillevic" not in r.err
+    r = run("enrich", "guillevic2021automated")  # its arXiv record now leads to the retitled article
+    assert r.code == cli.USAGE and "titled 'Automated fragment formula" in r.err
+    assert json.loads(run("show", "guillevic2021automated", "--json").out)["venue"] is None
+    assert run("enrich", "lecun2015deep").out == "lecun2015deep: nothing found to fill\n"
+
+
+def test_cli_enrich_refuses_another_papers_record(lib, run, net):
+    body = (FIXTURES / "openalex_doi_nature14539.json").read_bytes()
+    net.routes.insert(0, Route(r"api\.openalex\.org/works/W2919115771", 200, body, {}, None))
+    run("add", "--title", "Deep learning", "--year", "2015", "--doi", "10.1038/nature14539",
+        "--abstract", "Here already.")
+    run("add", "--title", "Deep learning", "--year", "2012", "--no-commit")  # same title, too far apart
+    key = "anon2012deep"
+    path = lib / "papers" / key / "paper.md"
+    paper = model.loads(path.read_text())
+    paper.ids["openalex"] = "W2919115771"  # wrongly: that work is the first paper
+    path.write_text(model.dumps(paper))
+    r = run("enrich")
+    assert r.code == cli.USAGE and "anon2015deep" in r.err and "same id" in r.err
+    assert model.loads(path.read_text()).ids.get("doi") is None
+
+
+def test_cli_enrich_nothing_to_do(lib, run):
+    assert run("enrich").code == cli.OK
+
+
+REAL_SPAWN = cli.spawn  # captured at import, before conftest replaces it
+
+
+def test_spawn_detaches_and_logs(tmp_path):
+    log = tmp_path / "logs" / "enrich.log"
+    REAL_SPAWN([sys.executable, "-c", "print('hello from the background')"], log)
+    deadline = time.monotonic() + 10
+    while "hello" not in (log.read_text() if log.exists() else "") and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert log.read_text() == "hello from the background\n"

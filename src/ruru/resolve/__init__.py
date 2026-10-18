@@ -20,6 +20,8 @@ from ruru.text import norm_title
 # Fields `refresh` may update; everything else (key, status, tags, notes, …) is Jesse's.
 METADATA = ("title", "authors", "year", "venue", "type", "volume", "issue", "pages", "publisher",
             "url", "pdf_url", "abstract")
+# Fields `enrich` may fill when empty: not the title or type, which identify the work as Jesse has it.
+FILLABLE = tuple(f for f in METADATA if f not in ("title", "type"))
 
 _DOI = re.compile(r"(10\.\d{4,9}/[^\s?#]+)", re.I)
 _ARXIV_NEW = r"\d{4}\.\d{4,5}(?:v\d+)?"
@@ -156,17 +158,20 @@ class Resolver:
                 pass
         return found
 
-    def refresh(self, paper: Paper) -> Paper:
-        """Re-resolve `paper` (preprint → published where possible), keeping everything that is Jesse's."""
+    def lookup(self, paper: Paper) -> Paper:
+        """The upstream record for `paper`: by its best id, else by its exact title."""
         ids = paper.ids
         if ids.get("doi"):
-            fresh = self.by_doi(ids["doi"] or "")
-        elif ids.get("arxiv"):
-            fresh = self.by_arxiv(ids["arxiv"] or "")
-        elif ids.get("openalex"):
-            fresh = self.by_openalex(ids["openalex"] or "")
-        else:
-            fresh = self.by_title(paper.title, year=paper.year)
+            return self.by_doi(ids["doi"] or "")
+        if ids.get("arxiv"):
+            return self.by_arxiv(ids["arxiv"] or "")
+        if ids.get("openalex"):
+            return self.by_openalex(ids["openalex"] or "")
+        return self.by_title(paper.title, year=paper.year)
+
+    def refresh(self, paper: Paper) -> Paper:
+        """Re-resolve `paper` (preprint → published where possible), keeping everything that is Jesse's."""
+        fresh = self.lookup(paper)
         if fresh.type == "preprint" and not fresh.ids.get("doi"):
             # Published under the same title, without the authors telling arXiv?
             published = [m for m in self.title_matches(fresh.title, year=fresh.year, kind="article")
@@ -189,9 +194,24 @@ def apply_metadata(paper: Paper, fresh: Paper) -> Paper:
     return out
 
 
+def fill_gaps(paper: Paper, found: Paper) -> Paper:
+    """`paper` with only its empty `FILLABLE` fields and missing ids taken from `found` (`ruru enrich`).
+    Unlike `apply_metadata`, nothing already there changes, so an imported entry keeps its title,
+    authors and type exactly as its .bib had them."""
+    out = replace(paper, ids=dict(paper.ids))
+    for name in FILLABLE:
+        if not getattr(out, name) and getattr(found, name):
+            setattr(out, name, getattr(found, name))
+    for kind, value in found.ids.items():
+        if value and not out.ids.get(kind):
+            out.ids[kind] = value
+    return out
+
+
 def changes(old: Paper, new: Paper) -> dict[str, tuple[object, object]]:
     fields = (*METADATA, "ids")
     return {f: (getattr(old, f), getattr(new, f)) for f in fields if getattr(old, f) != getattr(new, f)}
 
 
-__all__ = ["AmbiguousTitle", "Ident", "Resolver", "apply_metadata", "changes", "merge", "parse_identifier"]
+__all__ = ["AmbiguousTitle", "Ident", "Resolver", "apply_metadata", "changes", "fill_gaps", "merge",
+           "parse_identifier"]

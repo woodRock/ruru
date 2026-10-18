@@ -93,6 +93,9 @@ with examples. This skill is about workflow and judgement.
 ## Other things you may be asked
 
 - `ruru refresh KEY` re-resolves metadata (a preprint published since); keys never change.
+- `ruru enrich` fills empty abstracts and ids (BibTeX imports have none; `ruru add --bib` already
+  starts it in the background). A paper still without an abstract afterwards has none upstream:
+  say so, and don't write a summary from the title.
 - `ruru pdf KEY --fetch` downloads an open-access PDF when one exists; it never bypasses paywalls.
 - `ruru export json` writes the whole library as one JSON document; `ruru export bib -p PROJECT`
   writes a project's papers as BibTeX.

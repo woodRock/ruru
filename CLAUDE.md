@@ -113,6 +113,11 @@ the user config is `~/.config/ruru/config.toml` on macOS too.
   is Jesse's). `ops.triage(by=, reason=)` records them in seen.jsonl (an agent applying its own
   suggestion inherits its reason); `ruru seen` lists decisions; `ops.unskip` restores an item's
   inbox file from the commit that deleted it (`gitops.deleted_file`) and drops the skip record.
+- `ops.enrich` (`ruru enrich`): `Resolver.lookup` (best id, else exact title) then
+  `resolve.fill_gaps` (empty `FILLABLE` fields and missing ids only; never title/type), refusing a
+  record with a different normalised title or one whose new id belongs to another paper.
+  `ruru add --bib` stays offline and then `cli.spawn`s `python -m ruru enrich KEYS` detached (log
+  `.ruru/enrich.log`, `--no-enrich` to skip); conftest replaces `cli.spawn` (`spawned` fixture).
 - `ops.rekey`: the only way a key changes; moves the directory (and the git-ignored PDF), commits,
   and reports the projects whose .tex/.bib still use the old key.
 - `skills/ruru/SKILL.md`: the agent-facing workflows and rules. `tests/test_skill_docs.py` checks

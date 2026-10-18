@@ -171,12 +171,20 @@ ruru add 2103.13807 -t gc-ms               # arXiv: follows the journal DOI if t
 ruru add https://pubs.acs.org/doi/10.1021/ac0518219     # any URL containing a DOI or arXiv id
 ruru add "Deep learning" --year 2015       # an exact title, only if exactly one work matches
 ruru refresh                               # re-resolve everything: preprints that got published, fixes
+ruru enrich                                # fill missing abstracts and ids (e.g. after a BibTeX import)
 ruru pdf guillevic2021automated --fetch --open           # open-access PDFs only
 ```
 
 ruru never guesses: a title that matches several works is refused with the candidates listed, and
 a paper that can't be found is reported, not approximated. `refresh` updates metadata only;
 keys, status, tags, projects and notes are never touched.
+
+`ruru add --bib` stays offline so an import is instant; afterwards it starts `ruru enrich` for the
+new papers in the background (a one-off process that exits when done; log in `.ruru/enrich.log`;
+`--no-enrich` to skip it). `enrich` only fills empty fields (abstract, ids, volume, pages, …),
+never changes a title, author or type your .bib had, and takes nothing from a record whose title
+differs from the paper's. Run `ruru enrich` yourself any time to retry the papers still without an
+abstract; some publishers (Elsevier, for one) don't share abstracts with Crossref or OpenAlex.
 
 Sources are the arXiv, Crossref and OpenAlex APIs (no scraping). Requests are spaced (3 s for
 arXiv), retried with backoff on 429/5xx, and cached by ETag under `.ruru/http/`. OpenAlex gives a
@@ -239,7 +247,7 @@ Code permission rule. In `~/.claude/settings.json` (or a project's `.claude/sett
 }
 ```
 
-Everything else (`add`, `refresh`, `pdf --fetch`, `status`, `check`) asks first. `check` stays off
+Everything else (`add`, `refresh`, `enrich`, `pdf --fetch`, `status`, `check`) asks first. `check` stays off
 the allow list because `check --fix` cites. The rules match the start of the command, so agents
 should not put options before the subcommand (`ruru -L … keep` would slip past a deny rule); the
 skill tells them not to, and every agent write is a git commit you can inspect and revert.

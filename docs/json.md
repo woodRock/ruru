@@ -42,6 +42,7 @@ Every front matter field of `paper.md`, in this order, then two derived fields.
 | `ruru list --json` | array of paper objects, newest `added` first; `[]` (exit 2) if none match |
 | `ruru search QUERY --json` | array of paper objects, each with `score` (int, higher is better), best first; `[]` (exit 2) if none match |
 | `ruru show KEY --json` | one paper object with `notes` and `agent_notes`; exit 1 if the key is unknown |
+| `ruru enrich --json` | array, one object per paper attempted: `key`, `error` (string \| null), `filled` (`{field: new value}`; `ids` is the whole new ids object; empty when nothing was found to fill). Exit 3 if some failed. With `--dry-run` nothing is written. |
 | `ruru refresh --json` | array, one object per paper attempted: `key`, `error` (string \| null), `changes` (`{field: {"old": …, "new": …}}`, empty when up to date). Exit 3 if any failed. With `--dry-run` nothing is written. |
 
 | `ruru inbox --json` | array of inbox item objects, newest first; `[]` (exit 2) if empty |

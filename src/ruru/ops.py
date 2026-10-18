@@ -1,4 +1,5 @@
-"""Library operations shared by the CLI and the TUI: fetch, triage, suggestions, feed settings.
+"""Library operations shared by the CLI and the TUI: fetch, triage, suggestions, feed settings,
+enriching imported papers.
 
 Network work happens before any lock is taken; each operation then writes in one transaction.
 """
@@ -28,7 +29,8 @@ from ruru.inbox import DECISIONS, Deduper, Inbox, Item, append_seen, dumps, item
 from ruru.keys import base_key, unique_key
 from ruru.library import Library
 from ruru.projects import BibFile, Project, Report, bib_encoding, duplicate_keys, entry_keys, scan_tex
-from ruru.resolve import Resolver, merge
+from ruru.resolve import Resolver, changes, fill_gaps, merge
+from ruru.text import norm_title
 
 
 @dataclass
@@ -391,6 +393,50 @@ def set_notes(lib: Library, key: str, text: str) -> bool:
         paper.body = model.set_notes(paper.body, text)
         tx.save(paper)
     return True
+
+
+@dataclass
+class EnrichResult:
+    key: str
+    filled: dict[str, object]  # field (or "ids") -> its new value
+    error: str | None = None
+
+
+def enrich(lib: Library, client: Client, keys: Sequence[str] = (), *,
+           dry_run: bool = False) -> tuple[list[EnrichResult], list[RuruError]]:
+    """Fill the empty metadata (abstract, ids, venue, …) of `keys`, or of every paper without an
+    abstract, from Crossref/OpenAlex/arXiv. Never changes a value that is there, so it is safe on
+    BibTeX imports, and takes nothing from a record whose title differs from the paper's."""
+    papers = [lib.get(k) for k in keys] if keys else [p for p in lib.papers() if not p.abstract]
+    resolver = Resolver(client)
+    results: list[EnrichResult] = []
+    failures: list[RuruError] = []
+    found: dict[str, model.Paper] = {}
+    for p in papers:
+        try:
+            upstream = resolver.lookup(p)
+            if norm_title(upstream.title) != norm_title(p.title):  # e.g. an arXiv id leading to a retitled article
+                raise UsageError(f"the record found is titled {upstream.title!r}; not filled "
+                                 f"(`ruru refresh {p.key}` would take it as it is)")
+            new = fill_gaps(p, upstream)
+            probe = model.Paper(ids={k: v for k, v in new.ids.items() if v and not p.ids.get(k)})
+            other = lib.find_duplicate(probe) if any(probe.ids.values()) else None
+            if other and other.key != p.key:
+                raise UsageError(f"the record found is {other.key}'s (same id); not filled")
+        except RuruError as e:
+            print(f"ruru: {p.key}: {e}", file=sys.stderr)
+            failures.append(e)
+            results.append(EnrichResult(p.key, {}, str(e)))
+            continue
+        filled = {f: n for f, (_, n) in changes(p, new).items()}
+        results.append(EnrichResult(p.key, filled))
+        if filled:
+            found[p.key] = upstream
+    if found and not dry_run:
+        with lib.transaction(f"ruru: enrich {_summary(list(found))}") as tx:
+            for key, upstream in found.items():
+                tx.save(fill_gaps(lib.get(key), upstream))  # re-read: someone may have edited it meanwhile
+    return results, failures
 
 
 def fetch_pdf(lib: Library, client: Client, key: str, *, force: bool = False) -> Path:

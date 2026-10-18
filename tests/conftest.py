@@ -34,6 +34,15 @@ def isolated(tmp_path, monkeypatch):
     # No network, ever: an empty router fails any request. Tests that need HTTP use `net`.
     monkeypatch.setattr(http, "default_transport", Router())
     monkeypatch.setattr(http, "default_sleep", lambda s: None)
+    # Nor background processes: `ruru add --bib` would start `ruru enrich`. Tests read the calls.
+    spawned: list[list[str]] = []
+    monkeypatch.setattr(cli, "spawn", lambda argv, log: spawned.append(argv))
+    return spawned
+
+
+@pytest.fixture
+def spawned(isolated) -> list[list[str]]:
+    return isolated
 
 
 @pytest.fixture
