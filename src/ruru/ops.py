@@ -14,7 +14,7 @@ import sys
 import tomllib
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 from ruru import feeds as feedmod
@@ -443,8 +443,9 @@ def add_review(lib: Library, text: str, *, by: str | None = None, replace: bool 
     list (`model.UNREAD`): reviews are for what Jesse hasn't read yet. Missing `id`/`created`/`by`
     are filled in; `replace` overwrites a review with the same id that is still new."""
     review = load_review(text)
-    review.created = review.created or model.today()
-    review.id = review.id or reviews_slug(review.title, review.created)
+    review.created = review.created or model.now()
+    day = review.created.date() if isinstance(review.created, datetime) else review.created
+    review.id = review.id or reviews_slug(review.title, day)
     review.by = review.by or by
     review.status = "new"
     review.tags = sorted({t.strip().lower() for t in review.tags if t.strip()})

@@ -16,7 +16,7 @@ from mdit_py_plugins.dollarmath import dollarmath_plugin
 
 from ruru.library import Library
 from ruru.model import Paper
-from ruru.reviews import Review, citations
+from ruru.reviews import Review, citations, created_label
 from ruru.text import split_name
 
 
@@ -81,7 +81,7 @@ def _card(p: Paper, has_pdf: bool) -> str:
 def render(lib: Library, review: Review) -> str:
     papers = {k: lib.get(k) for k in review.papers if (lib.paper_dir(k) / "paper.md").exists()}
     meta = " · ".join(x for x in (
-        review.created.isoformat() if review.created else None,
+        created_label(review) or None,
         f"by {review.by}" if review.by else None,
         f"{len(review.papers)} paper{'s' if len(review.papers) != 1 else ''}",
         "new" if review.status == "new" else "kept",

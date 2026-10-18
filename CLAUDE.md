@@ -131,7 +131,9 @@ the user config is `~/.config/ruru/config.toml` on macOS too.
   in `model.UNREAD` or without a PDF; status `new` → `kept`, or discarded (deleted). Rendered on
   demand by `export/review_html.py` (markdown-it, raw HTML off, no scripts; `$…$`/`$$…$$` via
   mdit-py-plugins' dollarmath and latex2mathml to MathML) to `.ruru/reviews/` via
-  `cli.render_review_file`. TUI tab 3 (`y` keep, `n` discard, `o` open).
+  `cli.render_review_file`. TUI tab 3 (`y` keep, `n` discard, `o` open, `S` sort).
+  Lists: `reviews.sort_reviews` puts new first, then `SORTS`; `created` is a datetime (`model.now`),
+  older date-only reviews break ties by `gitops.added_times` (commit time of the file).
 - PDFs: `ruru pdf` is a group (`show`, `add`, `missing`); `main` rewrites `ruru pdf KEY …` to
   `pdf show KEY …`. `ops.add_pdfs` moves `KEY.pdf` files (or `--key`) into `papers/KEY/` after a
   `%PDF` check; `cli.downloads_dir()` (`downloads` in the user config, default ~/Downloads).

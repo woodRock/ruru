@@ -47,7 +47,8 @@ from ruru.errors import OK, RuruError
 from ruru.inbox import Inbox, Item, read_viewed, write_viewed
 from ruru.library import Library
 from ruru.model import STATUSES, UNREAD, Paper
-from ruru.reviews import Review, Reviews
+from ruru.reviews import SORTS as REVIEW_SORTS
+from ruru.reviews import Review, Reviews, created_label
 from ruru.search import SORTS, in_project, search, sort_papers
 
 POLL_SECONDS = 2.0
@@ -145,7 +146,7 @@ def item_markdown(item: Item) -> str:
 
 def review_markdown(lib: Library, r: Review) -> str:
     lines = [f"## {r.title}",
-             f"{r.created or ''} · {'**new**' if r.status == 'new' else 'kept'}"
+             f"{created_label(r)} · {'**new**' if r.status == 'new' else 'kept'}"
              + (f" · by {r.by}" if r.by else "") + "  ·  *o opens the full page*",
              " ".join(f"`#{t}`" for t in r.tags), "### Papers"]
     for k in r.papers:
@@ -350,7 +351,7 @@ class RuruApp(App[None]):
     TAB_ACTIONS: ClassVar[dict[str, set[str]]] = {
         "inbox": {"triage", "accept", "keep_for_project", "fetch", "toggle_viewed", "tag", "open_url"},
         "reading": {"triage", "open_paper", "edit_notes", "status", "pdf", "remove", "sort", "tag", "open_url"},
-        "reviews": {"triage", "open_url"},
+        "reviews": {"triage", "open_url", "sort"},
         "library": {"open_paper", "edit_notes", "status", "pdf", "remove", "sort", "tag", "open_url"},
         "projects": {"check"},
     }
@@ -365,6 +366,7 @@ class RuruApp(App[None]):
         self.reviews: list[Review] = []
         self.all_reviews: list[Review] = []
         self.sort = SORTS[0]
+        self.review_sort = REVIEW_SORTS[0]
         self.viewed: set[str] = set()
         self._view_timer: Timer | None = None
         self._kept_new: str | None = None  # marked new with `u`: not re-marked until the cursor leaves it
@@ -444,7 +446,7 @@ class RuruApp(App[None]):
             self.items = filter_items(Inbox(self.lib.root).items(), self.filters["inbox"])
             self.viewed = read_viewed(self.lib.root)
             papers = list(self.lib.papers())
-            self.all_reviews = Reviews(self.lib.root).all()
+            self.all_reviews = Reviews(self.lib.root).all(self.review_sort)
             self.reviews = filter_reviews(self.all_reviews, self.filters["reviews"])
             unread = [p for p in papers if p.status in UNREAD]
             self.reading = filter_papers(unread, self.filters["reading"], self.sort)
@@ -460,7 +462,7 @@ class RuruApp(App[None]):
             self.query_one(table, Table).refill([
                 (p.key, [p.key, str(p.year or ""), p.status, " ".join(p.tags), p.title]) for p in papers])
         self.query_one("#reviews-table", Table).refill(
-            [(r.id, [str(r.created or ""), str(len(r.papers)), r.title]) for r in self.reviews],
+            [(r.id, [created_label(r), str(len(r.papers)), r.title]) for r in self.reviews],
             bold={r.id for r in self.reviews if r.status == "new"})
         names = list(projmod.load(self.lib.settings.projects))
         plist = self.query_one("#project-list", OptionList)
@@ -474,7 +476,8 @@ class RuruApp(App[None]):
         by = f" by {self.sort}" if self.sort != SORTS[0] else ""
         tabs.get_tab("reading").label = f"Reading list ({len(self.reading)}){by}"
         new = sum(1 for r in self.reviews if r.status == "new")
-        tabs.get_tab("reviews").label = f"Reviews ({len(self.reviews)}{f', {new} new' if new else ''})"
+        rby = f" by {self.review_sort}" if self.review_sort != REVIEW_SORTS[0] else ""
+        tabs.get_tab("reviews").label = f"Reviews ({len(self.reviews)}{f', {new} new' if new else ''}){rby}"
         tabs.get_tab("library").label = f"Library ({len(self.papers)}){by}"
         self.show_details()
         if isinstance(self.screen, PaperScreen):
@@ -757,10 +760,16 @@ class RuruApp(App[None]):
         self.push_screen(Choose(f"Status for {key}:", list(STATUSES)), chosen)
 
     def action_sort(self) -> None:
-        """Cycle the library's order: added (newest first), key, year, status, title."""
-        self.sort = SORTS[(SORTS.index(self.sort) + 1) % len(SORTS)]
+        """Cycle the order: on the reading list and library, added (newest first), key, year, status,
+        title; on reviews (new ones always first), created, title, papers."""
+        if self.tab == "reviews":
+            self.review_sort = REVIEW_SORTS[(REVIEW_SORTS.index(self.review_sort) + 1) % len(REVIEW_SORTS)]
+            chosen = self.review_sort
+        else:
+            self.sort = SORTS[(SORTS.index(self.sort) + 1) % len(SORTS)]
+            chosen = self.sort
         self.reload()
-        self.notify(f"sorted by {self.sort}")
+        self.notify(f"sorted by {chosen}")
 
     def action_remove(self) -> None:
         key = self.current_key()

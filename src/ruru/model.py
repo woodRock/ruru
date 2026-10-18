@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime
 from typing import Any
 
 import yaml
@@ -39,6 +39,11 @@ _AGENT_RE = re.compile(r"^## Agent notes[ \t]*$", re.M)
 
 def today() -> date:
     return date.today()
+
+
+def now() -> datetime:
+    """Local time to the second (when a review was filed)."""
+    return datetime.now().replace(microsecond=0)
 
 
 def _ids() -> dict[str, str | None]:

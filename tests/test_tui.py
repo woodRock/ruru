@@ -502,3 +502,31 @@ def test_reviews_tab(lib, run, tmp_path, browsed):
     assert browsed and browsed[0].endswith(f"/.ruru/reviews/{first}.html")
     assert [r.status for r in Reviews(lib).all()] == ["kept"]
     assert ("information", "discard: Second look") in notices
+
+
+def test_reviews_tab_sort(lib, run, tmp_path):
+    for key in ("wood2026joint", "xue2025fitness"):
+        (lib / "papers" / key / "paper.pdf").write_bytes(b"%PDF-1.4\n")
+    for title, papers in (("Zeta on two", "[wood2026joint, xue2025fitness]"), ("Alpha on one", "[wood2026joint]")):
+        cites = " ".join(f"[@{k}]" for k in papers.strip("[]").split(", "))
+        (tmp_path / "r.md").write_text(f"---\ntitle: {title}\npapers: {papers}\n---\n{cites}\n")
+        run("review", "add", str(tmp_path / "r.md"))
+    zeta, alpha = (r.id for r in sorted(Reviews(lib).all(), key=lambda r: r.title, reverse=True))
+
+    def order(app):
+        table = app.query_one("#reviews-table")
+        return [str(table.coordinate_to_cell_key((i, 0)).row_key.value) for i in range(table.row_count)]
+
+    async def script(app, pilot):
+        await pilot.press("3")
+        assert order(app) == [alpha, zeta]  # filed last, shown first
+        await pilot.press("S")  # title
+        assert order(app) == [alpha, zeta] and "by title" in str(app.query_one("#tabs").get_tab("reviews").label)
+        await pilot.press("S")  # papers: most first
+        assert order(app) == [zeta, alpha]
+        await select(app, pilot, "#reviews-table", zeta)
+        await pilot.press("y")  # kept: below the new one, whatever the sort
+        assert order(app) == [alpha, zeta]
+        await pilot.press("S")
+        assert app.review_sort == "created" and app.sort == "added"  # the library's sort is untouched
+    drive(lib, script)

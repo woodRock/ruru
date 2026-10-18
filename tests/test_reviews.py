@@ -183,3 +183,62 @@ def test_slug_cuts_at_a_word_boundary():
     assert reviews.slug("Árvore & café", on) == "2026-10-18-arvore-cafe"
     exact = reviews.slug("a" * 69, on)  # 11 + 69 = 80 characters: kept whole
     assert exact == "2026-10-18-" + "a" * 69
+
+
+def _review(rid, *, created, status="new", papers=("a",), title=None):
+    return reviews.Review(id=rid, title=title or rid, papers=list(papers), status=status, created=created)
+
+
+def test_sort_reviews_new_first_then_newest():
+    from datetime import date, datetime
+    rs = [
+        _review("old-kept", created=date(2026, 10, 1), status="kept"),
+        _review("morning", created=datetime(2026, 10, 18, 9, 0)),
+        _review("evening", created=datetime(2026, 10, 18, 17, 30), status="kept"),
+        _review("legacy-a", created=date(2026, 10, 18)),
+        _review("legacy-b", created=date(2026, 10, 18)),
+    ]
+    filed = {"legacy-a": datetime(2026, 10, 18, 12).timestamp(),  # commit times
+             "legacy-b": datetime(2026, 10, 18, 8).timestamp()}
+    order = [r.id for r in reviews.sort_reviews(rs, filed=lambda r: filed.get(r.id, 0.0))]
+    # new first; the commit time places date-only reviews among the timestamped ones
+    assert order == ["legacy-a", "morning", "legacy-b", "evening", "old-kept"]
+    assert [r.id for r in reviews.sort_reviews(rs, "title")][:3] == ["legacy-a", "legacy-b", "morning"]
+    rs[1].papers = ["a", "b", "c"]
+    assert reviews.sort_reviews(rs, "papers")[0].id == "morning"
+    assert reviews.created_label(rs[1]) == "2026-10-18 09:00" and reviews.created_label(rs[0]) == "2026-10-01"
+
+
+def test_filed_reviews_get_a_timestamp_and_list_newest_first(lib, run, tmp_path, monkeypatch):
+    from datetime import datetime
+
+    from ruru import model
+    times = iter([datetime(2026, 10, 18, 9, 0, 0), datetime(2026, 10, 18, 16, 45, 12)])
+    monkeypatch.setattr(model, "now", lambda: next(times))
+    first = run("review", "add", draft(tmp_path), "-q").out.strip()
+    renamed = DRAFT.replace("title: Robust", "title: Aaa robust")
+    second = run("review", "add", draft(tmp_path, renamed), "-q").out.strip()
+    assert run("review", "-q").out.split() == [second, first]  # filed later, though "aaa" sorts last Z-A
+    assert run("review", "--sort", "title", "-q").out.split() == [second, first]
+    shown = json.loads(run("review", "show", second, "--json").out)
+    assert shown["created"] == "2026-10-18T16:45:12"
+    assert "created: 2026-10-18 16:45:12" in (lib / "reviews" / f"{second}.md").read_text()
+    run("review", "keep", second)
+    assert run("review", "-q").out.split() == [first, second]  # kept sinks below new
+    assert run("review", "--sort", "title", "-q").out.split() == [first, second]
+    page = (lib / ".ruru" / "reviews" / f"{second}.html")
+    run("review", "open", second, "--no-open")
+    assert "2026-10-18 16:45" in page.read_text()
+
+
+def test_legacy_date_only_reviews_sort_by_commit_time(lib, run, tmp_path):
+    import os
+    import subprocess
+    for title in ("Bbb first filed", "Aaa second filed"):  # Z-A by id would put "bbb" first
+        text = DRAFT.replace("title: Robust estimation for retention-time alignment",
+                             f"title: {title}\ncreated: 2026-10-17")
+        run("review", "add", draft(tmp_path, text), "-q")
+        stamp = "@1760600000" if "Bbb" in title else "@1760700000"
+        subprocess.run(["git", "-C", str(lib), "commit", "--amend", "--no-edit", "--quiet", "--date", stamp],
+                       check=True, env={**os.environ, "GIT_COMMITTER_DATE": stamp})
+    assert [r.split("-", 3)[3][:3] for r in run("review", "-q").out.split()] == ["aaa", "bbb"]

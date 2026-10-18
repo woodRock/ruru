@@ -2,7 +2,8 @@
 
 A review is front matter (`REVIEW_FIELDS`) plus a Markdown body that cites papers as `[@key]` or
 `[@a; @b]`. Agents write them (`ruru review add`); Jesse triages them like an inbox: a review is
-`new` until he keeps it (`kept`) or discards it (deleted; git keeps the history). Reviews only
+`new` until he keeps it (`kept`) or discards it (deleted; git keeps the history). Lists put new
+reviews first, then sort by `SORTS` (default: newest filed first). Reviews only
 cover papers on the reading list (`model.UNREAD`) whose PDF is in the library, so they rest on the
 full text of what Jesse has yet to read; his own `## Notes` stay for what he has read and understood.
 """
@@ -11,19 +12,21 @@ from __future__ import annotations
 
 import re
 import sys
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime, time
 from pathlib import Path
 from typing import Any
 
 import yaml
 
-from ruru import model
+from ruru import gitops, model
 from ruru.errors import UsageError
 from ruru.text import unaccent
 
 REVIEW_FIELDS = ("id", "title", "papers", "tags", "status", "created", "by")
 STATUSES = ("new", "kept")
+SORTS = ("created", "title", "papers")  # the first is the default
 
 _CITATION = re.compile(r"\[((?:@[^\]\s;]+\s*;\s*)*@[^\]\s;]+)\]")
 _ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,79}$")
@@ -42,13 +45,37 @@ class Review:
     body: str = ""
     tags: list[str] = field(default_factory=list)
     status: str = "new"
-    created: date | None = None
+    created: date | datetime | None = None  # a datetime since 2026-10-18; older reviews have a date
     by: str | None = None
     path: Path | None = field(default=None, compare=False)
 
     def front_matter(self) -> dict[str, Any]:
         return {"id": self.id, "title": self.title, "papers": self.papers, "tags": self.tags,
                 "status": self.status, "created": self.created, "by": self.by}
+
+
+def created_label(r: Review) -> str:
+    if isinstance(r.created, datetime):
+        return r.created.strftime("%Y-%m-%d %H:%M")
+    return r.created.isoformat() if r.created else ""
+
+
+def sort_reviews(reviews: Iterable[Review], by: str = SORTS[0], *,
+                 filed: Callable[[Review], float] = lambda r: 0.0) -> list[Review]:
+    """New reviews first, then: created (newest first; `filed`, e.g. the commit time, breaks ties
+    between date-only reviews), title (A-Z) or papers (most first)."""
+    def when(r: Review) -> float:
+        if isinstance(r.created, datetime):
+            return r.created.timestamp()
+        if r.created:
+            return max(datetime.combine(r.created, time.min).timestamp(), filed(r))
+        return filed(r)
+    keys: dict[str, Callable[[Review], tuple[object, ...]]] = {
+        "created": lambda r: (r.status != "new", -when(r), r.id),
+        "title": lambda r: (r.status != "new", r.title.lower(), r.id),
+        "papers": lambda r: (r.status != "new", -len(r.papers), r.id),
+    }
+    return sorted(reviews, key=keys[by])
 
 
 def slug(title: str, on: date) -> str:
@@ -126,16 +153,19 @@ class Reviews:
     def path_for(self, review_id: str) -> Path:
         return self.dir / f"{review_id}.md"
 
-    def all(self) -> list[Review]:
-        """Newest first."""
+    def all(self, by: str = SORTS[0]) -> list[Review]:
+        """New first, then by `by` (see `sort_reviews`)."""
         out = []
         for path in self.dir.glob("*.md") if self.dir.is_dir() else []:
             try:
                 out.append(loads(path.read_text(encoding="utf-8"), path))
             except (ValueError, yaml.YAMLError) as e:
                 print(f"ruru: warning: skipping {path.relative_to(self.root)}: {e}", file=sys.stderr)
-        out.sort(key=lambda r: (r.created or date.min, r.id), reverse=True)
-        return out
+        filed: Callable[[Review], float] = lambda r: 0.0
+        if by == "created" and any(not isinstance(r.created, datetime) for r in out):
+            added = gitops.added_times(self.root, "reviews")
+            filed = lambda r: float(added.get(f"reviews/{r.id}.md", 0))
+        return sort_reviews(out, by, filed=filed)
 
     def get(self, review_id: str) -> Review:
         path = self.path_for(review_id)

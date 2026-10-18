@@ -58,6 +58,21 @@ def deleted_file(root: Path, pattern: str) -> tuple[str, str] | None:
     return path, _git(root, "show", f"{commit}^:{path}").stdout
 
 
+def added_times(root: Path, pathspec: str) -> dict[str, int]:
+    """Unix time of the commit that first added each file matching `pathspec` (one git call)."""
+    if not is_repo(root):
+        return {}
+    out = _git(root, "log", "--diff-filter=A", "--format=@%ct", "--name-only", "--", pathspec).stdout
+    times: dict[str, int] = {}
+    when = 0
+    for line in out.splitlines():
+        if line.startswith("@"):
+            when = int(line[1:])
+        elif line.strip():
+            times.setdefault(line.strip(), when)  # newest first: keep the latest add (a re-filed review)
+    return times
+
+
 def status(root: Path) -> list[str]:
     """`git status --porcelain` lines (uncommitted changes, untracked files)."""
     return [line for line in _git(root, "status", "--porcelain").stdout.splitlines() if line]

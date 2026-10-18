@@ -65,7 +65,7 @@ Every front matter field of `paper.md`, in this order, then two derived fields.
 | `path` | string | relative to the library root |
 | `viewed` | bool | Jesse has looked at it in `ruru tui` (only the TUI marks items; the CLI never does) |
 
-| `ruru review --json` (and `review list`) | array of review objects, newest first; `[]` (exit 2) if none |
+| `ruru review --json` (and `review list`) | array of review objects: `new` ones first, then by `--sort` (`created`, newest first, by default; `title`; `papers`, most first); `[]` (exit 2) if none |
 | `ruru review show ID --json` | one review object, with `body` (the Markdown) |
 | `ruru pdf missing --json` | array of `{"key", "title", "link" (DOI or URL \| null), "save_as": "KEY.pdf"}`; `[]` (exit 2) when nothing is missing |
 
@@ -78,7 +78,7 @@ Every front matter field of `paper.md`, in this order, then two derived fields.
 | `papers` | [string] | the keys it covers, each cited in the body as `[@key]` |
 | `tags` | [string] | |
 | `status` | string | `new` \| `kept` |
-| `created` | date | |
+| `created` | datetime \| date | when it was filed, `2026-10-18T16:45:12`; reviews filed before 2026-10-18 evening have a date only |
 | `by` | string \| null | the agent that wrote it |
 | `path` | string | relative to the library root |
 

@@ -33,6 +33,7 @@ from ruru.library import Library
 from ruru.model import Paper
 from ruru.output import color_enabled, emit_json, item_json, item_line, paper_json, paper_line, style, warn
 from ruru.resolve import Resolver, apply_metadata, changes, openalex, parse_identifier
+from ruru.reviews import SORTS as REVIEW_SORTS
 from ruru.reviews import STATUSES as REVIEW_STATUSES
 from ruru.reviews import Review, Reviews
 from ruru.search import SORTS, in_project, search, sort_papers
@@ -794,7 +795,7 @@ def review_json(r: Review, root: Path, body: bool = False) -> dict[str, object]:
 
 def cmd_review_list(args: argparse.Namespace) -> int:
     lib = _open(args)
-    found = [r for r in Reviews(lib.root).all() if not args.status or r.status == args.status]
+    found = [r for r in Reviews(lib.root).all(args.sort) if not args.status or r.status == args.status]
     if args.json:
         emit_json([review_json(r, lib.root) for r in found])
     elif args.quiet:
@@ -1282,6 +1283,8 @@ def build_parser() -> argparse.ArgumentParser:
                  "ruru review open 2026-10-18-robust-alignment", "ruru review keep 2026-10-18-robust-alignment"],
                 [read])
     p.add_argument("-s", "--status", choices=REVIEW_STATUSES)
+    p.add_argument("--sort", choices=REVIEW_SORTS, default=REVIEW_SORTS[0],
+                   help="after new reviews: created (newest first, default), title, papers (most first)")
     rsub = p.add_subparsers(dest="review_command", metavar="ACTION", parser_class=_Parser)
 
     def review_command(name: str, func: Handler, help: str, examples: Sequence[str],
@@ -1291,9 +1294,12 @@ def build_parser() -> argparse.ArgumentParser:
         rp.set_defaults(func=func)
         return rp
 
-    rp = review_command("list", cmd_review_list, "list reviews, newest first (new ones marked ●)",
-                        ["ruru review list -s new", "ruru review list --json"], [read])
+    rp = review_command("list", cmd_review_list, "list reviews: new ones (marked ●) first, then newest",
+                        ["ruru review list -s new", "ruru review list --sort title", "ruru review list --json"],
+                        [read])
     rp.add_argument("-s", "--status", choices=REVIEW_STATUSES)
+    rp.add_argument("--sort", choices=REVIEW_SORTS, default=REVIEW_SORTS[0],
+                    help="after new reviews: created (newest first, default), title, papers (most first)")
     rp = review_command("show", cmd_review_show, "print a review's Markdown",
                         ["ruru review show 2026-10-18-robust-alignment", "ruru review show ID --json"], [read])
     rp.add_argument("id")
