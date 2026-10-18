@@ -304,3 +304,48 @@ def test_import_merges_labels_and_skips_key_clashes(lib, run, tmp_path):
     before = git_log(lib)
     run("add", "--bib", str(tmp_path / "a.bib"), "--keep-key", "-p", "a")
     assert git_log(lib) == before
+
+
+def test_rm(stocked, run, tmp_path):
+    keys = run("list", "-q").out.split()
+    other = next(k for k in keys if k != "wood2026joint")
+    (stocked / "papers" / "wood2026joint" / "paper.pdf").write_bytes(b"%PDF-1.4\n")
+    assert run("rm", "wood2026joint", "nosuchkey").code == cli.USAGE  # nothing removed
+    assert (stocked / "papers" / "wood2026joint" / "paper.md").exists()
+    r = run("rm", "wood2026joint")
+    assert r.code == 0 and r.out.startswith("removed wood2026joint: Joint")
+    assert not (stocked / "papers" / "wood2026joint").exists()
+    assert git_log(stocked)[0] == "ruru: rm wood2026joint"
+    assert run("show", "wood2026joint").code == cli.USAGE
+    seen = json.loads(run("seen", "-d", "remove", "--json").out)
+    assert [(s["key"], s["title"]) for s in seen] == [("wood2026joint", "Joint Retention-Time Alignment of Many "
+                                                                         "GC–MS Batches")]
+    assert "remove wood2026joint" in run("seen").out
+    run("project", "add", "demo", "--path", str(tmp_path), "--bib", "refs.bib")
+    run("add", "--bib", str(tmp_path / "refs.bib"), "-p", "demo", "--no-enrich")  # labels the existing two
+    r = run("rm", other, "-q")
+    assert r.out == f"{other}\n" and "was in demo" in r.err
+    assert run("rm").code == cli.USAGE
+
+
+def test_list_sort_and_no_project(stocked, run, tmp_path):
+    run("add", "--title", "Zebrafish lipids", "--author", "Ann Aardvark", "--year", "1999", "-q")
+    run("status", "aardvark1999zebrafish", "read")
+    run("status", "maaten2008visualizing", "reading")
+    keys = lambda *a: run("list", "-q", *a).out.split()
+    everything = set(keys())
+    assert keys() == keys("--sort", "key", "-r")  # all added today: `added` is a date, ties go by key
+    assert keys("--sort", "key") == sorted(everything, key=str.lower)
+    assert keys("--sort", "key", "-r") == sorted(everything, key=str.lower, reverse=True)
+    assert keys("--sort", "year") == ["wood2026joint", "nunez2025survey", "maaten2008visualizing",
+                                      "aardvark1999zebrafish"]
+    assert keys("--sort", "status") == ["nunez2025survey", "wood2026joint", "maaten2008visualizing",
+                                        "aardvark1999zebrafish"]
+    assert keys("--sort", "title")[0] == "nunez2025survey"  # "A Survey…"
+    assert run("list", "--sort", "colour").code == cli.USAGE
+    run("project", "add", "demo", "--path", str(tmp_path), "--bib", "refs.bib")
+    run("add", "--bib", str(tmp_path / "refs.bib"), "-p", "demo", "--no-enrich")  # labels SAMPLE_BIB's two
+    assert set(keys("-p", "none")) == {"wood2026joint", "aardvark1999zebrafish"}
+    assert set(keys("-p", "demo")) == everything - {"wood2026joint", "aardvark1999zebrafish"}
+    r = run("project", "add", "none", "--path", str(tmp_path), "--bib", "x.bib")
+    assert r.code == cli.USAGE and "in no project" in r.err

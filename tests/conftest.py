@@ -37,12 +37,27 @@ def isolated(tmp_path, monkeypatch):
     # Nor background processes: `ruru add --bib` would start `ruru enrich`. Tests read the calls.
     spawned: list[list[str]] = []
     monkeypatch.setattr(cli, "spawn", lambda argv, log: spawned.append(argv))
-    return spawned
+    # Nor browsers or the clipboard: `browsed` and `clipboard` record what would have been opened/copied.
+    browsed: list[str] = []
+    clipboard: list[str] = []
+    monkeypatch.setattr(cli.webbrowser, "open", browsed.append)
+    monkeypatch.setattr(cli, "copy_to_clipboard", lambda text: clipboard.append(text) or True)
+    return spawned, browsed, clipboard
 
 
 @pytest.fixture
 def spawned(isolated) -> list[list[str]]:
-    return isolated
+    return isolated[0]
+
+
+@pytest.fixture
+def browsed(isolated) -> list[str]:
+    return isolated[1]
+
+
+@pytest.fixture
+def clipboard(isolated) -> list[str]:
+    return isolated[2]
 
 
 @pytest.fixture

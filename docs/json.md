@@ -57,10 +57,29 @@ Every front matter field of `paper.md`, in this order, then two derived fields.
 |---|---|---|
 | `id` | string | stable within the inbox: `arxiv-2610.01234`, `doi-10.1021-acs.analchem.6c03760`, `oa-W…`, `rss-…` |
 | `title` … `abstract` | | the bibliographic fields of a paper object, same types |
+| `tags` | [string] | empty except on a paper moved back with `ruru unkeep` |
 | `source` | string | `feed:<name>` |
 | `published` | date \| null | as the feed reports it |
 | `fetched` | date | |
 | `suggestion` | object \| null | `{"action": "keep" \| "skip" \| "later", "reason": string, "by": string, "date": date}` |
+| `path` | string | relative to the library root |
+| `viewed` | bool | Jesse has looked at it in `ruru tui` (only the TUI marks items; the CLI never does) |
+
+| `ruru review --json` (and `review list`) | array of review objects, newest first; `[]` (exit 2) if none |
+| `ruru review show ID --json` | one review object, with `body` (the Markdown) |
+| `ruru pdf missing --json` | array of `{"key", "title", "link" (DOI or URL \| null), "save_as": "KEY.pdf"}`; `[]` (exit 2) when nothing is missing |
+
+## Review object
+
+| key | type | notes |
+|---|---|---|
+| `id` | string | `<created>-<title slug>`; the file is `reviews/<id>.md` |
+| `title` | string | |
+| `papers` | [string] | the keys it covers, each cited in the body as `[@key]` |
+| `tags` | [string] | |
+| `status` | string | `new` \| `kept` |
+| `created` | date | |
+| `by` | string \| null | the agent that wrote it |
 | `path` | string | relative to the library root |
 
 | `ruru project --json` | array of `{"name", "path", "bib", "tex": [string], "bib_encoding": string \| null}` (`path` as written in ruru.toml) |
@@ -87,7 +106,7 @@ Every front matter field of `paper.md`, in this order, then two derived fields.
 }
 ```
 
-| `ruru seen --json` | array of triage records from seen.jsonl, newest first: `id`, `decision` (`keep` \| `skip` \| `later`), `date`, `key` (string \| null), `ids`, `title`, `year`, and `by` and `reason` when an agent decided |
+| `ruru seen --json` | array of triage records from seen.jsonl, newest first: `id`, `decision` (`keep` \| `skip` \| `later` \| `remove`: `ruru rm`, keyed by the paper's key), `date`, `key` (string \| null), `ids`, `title`, `year`, and `by` and `reason` when an agent decided |
 | `ruru doctor --json` | array of `{"name", "status": "ok" \| "warn" \| "fail", "detail"}`; exit 3 if any failed |
 
 ## Export document (`ruru export json`)

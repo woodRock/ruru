@@ -11,8 +11,9 @@ from conftest import git_log
 from httpfix import FEEDS
 from ruru import cli, model, ops, tui
 from ruru.errors import LockHeld
-from ruru.inbox import Inbox
+from ruru.inbox import Inbox, read_seen, read_viewed
 from ruru.library import Library
+from ruru.reviews import Reviews
 
 pytestmark = pytest.mark.tui
 SIZE = (140, 40)
@@ -75,7 +76,7 @@ def test_inbox_lists_items_and_shows_detail(lib):
         assert table.cursor_row == 1
         await pilot.press("k")
         assert table.cursor_row == 0
-        assert "Inbox (4)" in str(app.query_one("#tabs").get_tab("inbox").label)
+        assert "Inbox (4, 4 new)" in str(app.query_one("#tabs").get_tab("inbox").label)
         assert app.items[0].paper.title in tui.item_markdown(app.items[0])
     drive(lib, script)
 
@@ -93,7 +94,7 @@ def test_keep_skip_later(lib):
     assert log[2].startswith("ruru: keep ") and log[1] == f"ruru: skip {second}"
     assert log[0].startswith("ruru: later ")
     statuses = sorted(p.status for p in Library.open(lib).papers() if p.source.startswith("feed:"))
-    assert statuses == ["later", "to-read"]
+    assert statuses == ["later", "read"]  # y: kept as read; l: the reading list
     assert [s for s, _ in notices].count("information") >= 3
     assert first not in inbox_ids(lib) and third not in inbox_ids(lib)
 
@@ -145,9 +146,9 @@ def test_filter(lib):
         await pilot.press("slash", "ctrl+u", "enter")
         assert len(app.items) == 4
         await pilot.press("2", "slash", *"t:gc-ms", "enter")
-        assert [p.key for p in app.papers] == ["wood2026joint"]
+        assert [p.key for p in app.reading] == ["wood2026joint"]
         await pilot.press("slash", "ctrl+u", *"fitness", "enter")
-        assert [p.key for p in app.papers] == ["xue2025fitness"]
+        assert [p.key for p in app.reading] == ["xue2025fitness"]
     drive(lib, script)
 
 
@@ -158,8 +159,8 @@ def test_library_paper_screen_actions(lib, monkeypatch):
 
     async def script(app, pilot):
         await pilot.press("2")
-        await select(app, pilot, "#library-table", "wood2026joint")
-        assert app.query_one("#library-table").row_count == 2 and app.tab == "library"
+        await select(app, pilot, "#reading-table", "wood2026joint")
+        assert app.query_one("#reading-table").row_count == 2 and app.tab == "reading"
         await pilot.press("enter")
         assert isinstance(app.screen, tui.PaperScreen) and app.screen.key == "wood2026joint"
         await pilot.press("e")
@@ -169,7 +170,7 @@ def test_library_paper_screen_actions(lib, monkeypatch):
         await pilot.press("o")  # no URL
         await pilot.press("escape")
         assert not isinstance(app.screen, tui.PaperScreen)
-        await select(app, pilot, "#library-table", "xue2025fitness")
+        await select(app, pilot, "#reading-table", "xue2025fitness")
         await pilot.press("o")
     _, notices = drive(lib, script)
     p = Library.open(lib).get("wood2026joint")
@@ -201,7 +202,7 @@ def test_pdf_open_and_fetch(lib, net, monkeypatch):
     async def script(app, pilot):
         await pilot.press("2")
         for key in ("wood2026joint", "xue2025fitness"):
-            await select(app, pilot, "#library-table", key)
+            await select(app, pilot, "#reading-table", key)
             await pilot.press("d")
             await app.workers.wait_for_complete()
             await pilot.pause()
@@ -213,7 +214,7 @@ def test_pdf_open_and_fetch(lib, net, monkeypatch):
 def test_pdf_fetch_failure(lib, monkeypatch):
     async def script(app, pilot):
         await pilot.press("2")
-        await select(app, pilot, "#library-table", "wood2026joint")
+        await select(app, pilot, "#reading-table", "wood2026joint")
         await pilot.press("d")
         await app.workers.wait_for_complete()
     # The paper has no DOI, so ruru looks it up by title, which finds nothing.
@@ -221,6 +222,19 @@ def test_pdf_fetch_failure(lib, monkeypatch):
     monkeypatch.setattr(tui.cli.http, "default_transport", Router().add("title.search", body='{"results": []}'))
     _, notices = drive(lib, script)
     assert any(s == "error" and "no work titled" in m for s, m in notices)
+
+
+def test_pdf_without_open_access_opens_the_publisher(lib, monkeypatch, browsed, clipboard):
+    async def script(app, pilot):
+        await pilot.press("2")
+        await select(app, pilot, "#reading-table", "xue2025fitness")
+        await pilot.press("d")
+        await app.workers.wait_for_complete()
+    from httpfix import Router  # no open-access copy: OpenAlex has no pdf_url, the DOI page is a paywall
+    monkeypatch.setattr(tui.cli.http, "default_transport", Router().add(".", status=404))
+    _, notices = drive(lib, script)
+    assert browsed == ["https://doi.org/10.1186/s13321-021-00544-w"] and clipboard == ["xue2025fitness.pdf"]
+    assert any(s == "warning" and "save it as xue2025fitness.pdf" in m for s, m in notices)
 
 
 def test_fetch_reports_new_items_and_failures(lib, net, monkeypatch):
@@ -247,7 +261,7 @@ def test_projects_tab(lib, run, tmp_path):
     run("cite", "joint-align", "wood2026joint")
 
     async def script(app, pilot):
-        await pilot.press("3")
+        await pilot.press("5")
         assert app.tab == "projects"
         await pilot.press("c")
     _, notices = drive(lib, script)
@@ -287,8 +301,8 @@ def test_empty_library_views(tmp_path, run, monkeypatch):
     run("init", str(root))
 
     async def script(app, pilot):
-        await pilot.press("y", "a", "t", "o", "2", "e", "s", "d", "t", "o", "3")
-        assert app.query_one("#library-table").row_count == 0
+        await pilot.press("y", "a", "t", "o", "2", "e", "s", "d", "t", "o", "5")
+        assert app.query_one("#reading-table").row_count == 0
         for tab in ("inbox", "library", "project"):  # the mascot stands in for every empty pane
             placeholder = app.query_one(f"#{tab}-empty")
             assert placeholder.display and "◉" in placeholder.content.plain
@@ -321,3 +335,170 @@ def test_run_and_cli_entry(lib, monkeypatch, run):
 
 def test_paper_json_unaffected():
     assert json.dumps({"ok": True})
+
+
+def test_remove_paper(lib):
+    async def script(app, pilot):
+        await pilot.press("2")
+        await select(app, pilot, "#reading-table", "wood2026joint")
+        await pilot.press("x", "enter")  # "no, keep it" is first
+        assert app.query_one("#reading-table").row_count == 2
+        await pilot.press("x", "escape")
+        await pilot.press("x", "down", "enter")
+        assert app.query_one("#reading-table").row_count == 1
+        await select(app, pilot, "#reading-table", "xue2025fitness")
+        await pilot.press("enter", "x", "down", "enter")
+        assert not isinstance(app.screen, tui.PaperScreen)
+    _, notices = drive(lib, script)
+    assert Library.open(lib).keys() == []
+    assert git_log(lib)[:2] == ["ruru: rm xue2025fitness", "ruru: rm wood2026joint"]
+    assert any(m.startswith("removed wood2026joint") for _, m in notices)
+
+
+def test_library_sort_and_no_project(lib, run, tmp_path):
+    run("project", "add", "demo", "--path", str(tmp_path), "--bib", "refs.bib")
+    run("add", "--title", "Fitness landscapes", "--year", "2025", "-p", "demo")  # labels xue2025fitness
+
+    def order(app):
+        table = app.query_one("#reading-table")
+        return [str(table.coordinate_to_cell_key((r, 0)).row_key.value) for r in range(table.row_count)]
+
+    async def script(app, pilot):
+        await pilot.press("2")
+        assert order(app) == ["xue2025fitness", "wood2026joint"]  # added: same day, then key descending
+        await pilot.press("S")  # key
+        assert order(app) == ["wood2026joint", "xue2025fitness"] and "by key" in str(
+            app.query_one("#tabs").get_tab("library").label)
+        await pilot.press("S")  # year
+        assert order(app) == ["wood2026joint", "xue2025fitness"]
+        await pilot.press("S", "S", "S")  # status, title, back to added
+        assert order(app) == ["xue2025fitness", "wood2026joint"]
+        await pilot.press("slash", *"p:none", "enter")
+        assert order(app) == ["wood2026joint"]
+        await pilot.press("slash", "ctrl+u", *"fitness", "enter")
+        await pilot.press("S")  # a chosen sort beats relevance
+        assert order(app) == ["xue2025fitness"]
+    _, notices = drive(lib, script)
+    assert ("information", "sorted by key") in notices
+
+
+def test_new_items_are_bold_until_viewed(lib, run, monkeypatch):
+    monkeypatch.setattr(tui, "VIEW_SECONDS", 0.3)
+    first, second = inbox_ids(lib)[:2]
+
+    def bold(app, item_id):
+        table = app.query_one("#inbox-table")
+        return table.get_row(item_id)[0].style == "bold"
+
+    async def script(app, pilot):
+        await pilot.pause(0.6)  # resting on the first item marks it
+        assert not bold(app, first) and bold(app, second)
+        assert "Inbox (4, 3 new)" in str(app.query_one("#tabs").get_tab("inbox").label)
+        await pilot.press("j", "k")  # passing over the second item quickly doesn't
+        await pilot.pause(0.6)
+        assert bold(app, second)
+        await pilot.press("u")  # mark the first new again
+        await pilot.pause(0.6)
+        assert bold(app, first)
+        await pilot.press("u")
+        assert not bold(app, first)
+    drive(lib, script)
+    assert read_viewed(lib) == {first}
+    assert json.loads(run("inbox", "--json").out)[0]["viewed"] is True  # the CLI reads it, never marks
+    assert read_viewed(lib) == {first}
+    run("skip", first)
+    run("unskip", first)
+    assert json.loads(run("show", first, "--json").out)["viewed"] is False  # it came back: new again
+
+
+def test_unkeep(lib, run):
+    item = inbox_ids(lib)[0]
+    run("keep", item, "-q")
+    key = next(k for k in run("list", "-q").out.split() if Library.open(lib).get(k).source.startswith("feed:"))
+    run("tag", key, "+gc-ms")
+    r = run("unkeep", key)
+    assert r.code == 0 and f"back in the inbox as {item}" in r.out
+    assert git_log(lib)[0] == f"ruru: unkeep {key}" and item in inbox_ids(lib)
+    back = json.loads(run("show", item, "--json").out)
+    assert back["tags"] == ["gc-ms"] and back["viewed"] is False and back["published"]
+    assert not [r for r in read_seen(lib) if r.get("key") == key]
+    r = run("keep", item, "-q")  # and it can be kept again, tags and all
+    assert Library.open(lib).get(r.out.strip()).tags == ["gc-ms"]
+    run("note", "wood2026joint", "--agent", "-m", "Read it.")
+    r = run("unkeep", "wood2026joint")
+    assert r.code == cli.USAGE and "has notes" in r.err
+    run("project", "add", "demo", "--path", str(lib), "--bib", "refs.bib")
+    run("add", "--title", "Fitness landscapes", "--year", "2025", "-p", "demo")
+    assert "project demo" in run("unkeep", "xue2025fitness").err
+    (lib / "papers" / "xue2025fitness" / "paper.pdf").write_bytes(b"%PDF")
+    assert "a PDF and project demo" in run("unkeep", "xue2025fitness").err
+    assert run("unkeep", "nosuchkey").code == cli.USAGE
+
+
+def test_reading_list(lib):
+    first, second = inbox_ids(lib)[:2]
+
+    async def script(app, pilot):
+        assert [p.key for p in app.reading] == ["xue2025fitness", "wood2026joint"] and app.papers == []
+        assert "Reading list (2)" in str(app.query_one("#tabs").get_tab("reading").label)
+        await select(app, pilot, "#inbox-table", first)
+        await pilot.press("y")  # kept as read: straight to the Library
+        await select(app, pilot, "#inbox-table", second)
+        await pilot.press("l")  # to the reading list
+        assert len(app.papers) == 1 and len(app.reading) == 3
+        await pilot.press("2")
+        await select(app, pilot, "#reading-table", "wood2026joint")
+        assert not app.check_action("triage", ("skip",)) and app.check_action("triage", ("keep",))
+        await pilot.press("n", "l")  # inbox-only: nothing happens
+        assert len(app.reading) == 3
+        await pilot.press("y")
+        assert "wood2026joint" in [p.key for p in app.papers] and len(app.reading) == 2
+        await select(app, pilot, "#reading-table", "xue2025fitness")
+        await pilot.press("enter")
+        assert isinstance(app.screen, tui.PaperScreen) and not app.check_action("triage", ("skip",))
+        await pilot.press("y")  # done reading, from the paper's own screen
+        assert not app.check_action("triage", ("keep",))  # already read
+        await pilot.press("escape", "4")
+        assert app.tab == "library" and len(app.papers) == 3
+        await select(app, pilot, "#library-table", "xue2025fitness")
+        assert not app.check_action("triage", ("keep",))
+    _, notices = drive(lib, script)
+    assert ("information", "read: wood2026joint (now in the Library)") in notices
+    statuses = {p.key: p.status for p in Library.open(lib).papers()}
+    assert statuses["wood2026joint"] == statuses["xue2025fitness"] == "read"
+    assert sorted(statuses.values()) == ["later", "read", "read", "read"]
+
+
+def test_reviews_tab(lib, run, tmp_path, browsed):
+    for key in ("wood2026joint", "xue2025fitness"):
+        (lib / "papers" / key / "paper.pdf").write_bytes(b"%PDF-1.4\n")
+    text = ("---\ntitle: {t}\npapers: [wood2026joint, xue2025fitness]\n---\n"
+            "On [@wood2026joint] and [@xue2025fitness].\n")
+    for title in ("Alignment and fitness", "Second look"):
+        (tmp_path / "r.md").write_text(text.format(t=title))
+        assert run("review", "add", str(tmp_path / "r.md"), "--by", "claude").code == 0
+    first, second = (r.id for r in sorted(Reviews(lib).all(), key=lambda r: r.title))
+
+    async def script(app, pilot):
+        await pilot.press("3")
+        label = lambda: str(app.query_one("#tabs").get_tab("reviews").label)
+        assert app.tab == "reviews" and "Reviews (2, 2 new)" in label()
+        table = app.query_one("#reviews-table")
+        assert table.get_row(first)[0].style == "bold"
+        await select(app, pilot, "#reviews-table", first)
+        assert not app.check_action("triage", ("later",)) and app.check_action("triage", ("skip",))
+        await pilot.press("y")
+        assert table.get_row(first)[0].style == "" and "1 new" in label()
+        await pilot.press("enter")  # the full page, in the browser
+        await select(app, pilot, "#reviews-table", second)
+        await pilot.press("n")
+        assert [r.id for r in app.reviews] == [first]
+        await pilot.press("slash", *"nomatch", "enter")
+        assert app.reviews == []
+        await pilot.press("slash", "ctrl+u", "enter", "2")
+        await select(app, pilot, "#reading-table", "wood2026joint")
+        assert "### Reviews" in tui.paper_markdown(app.lib.get("wood2026joint"), True, app.all_reviews)
+    _, notices = drive(lib, script)
+    assert browsed and browsed[0].endswith(f"/.ruru/reviews/{first}.html")
+    assert [r.status for r in Reviews(lib).all()] == ["kept"]
+    assert ("information", "discard: Second look") in notices

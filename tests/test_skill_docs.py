@@ -80,7 +80,7 @@ def test_readme_permission_rules():
         assert m.group(1) in commands, rule
         if m.group(2):
             assert m.group(2) in commands[m.group(1)], rule
-    for decision in ("keep", "later", "cite"):  # anything that adds to the library or a paper
+    for decision in ("keep", "later", "cite", "rm"):  # anything that adds to or removes from the library
         assert f"Bash(ruru {decision}:*)" in rules["deny"]
     allowed = {r.split()[1].rstrip(":*)") for r in rules["allow"]}
     assert not allowed & {"keep", "later", "cite", "check"}

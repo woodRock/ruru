@@ -116,7 +116,7 @@ def test_fetch_keeps_rss_stub_when_doi_lookup_fails(lib, run, net):
 def test_inbox_listing(filled, run):
     rows = json.loads(run("inbox", "--json").out)
     assert len(rows) == 9
-    assert set(rows[0]) == set(inbox.ITEM_FIELDS) | {"path"}
+    assert set(rows[0]) == set(inbox.ITEM_FIELDS) | {"path", "viewed"}
     assert rows[0]["path"].startswith("inbox/") and rows[0]["suggestion"] is None
     assert len(run("inbox", "-n", "2", "-q").out.split()) == 2
     assert run("inbox", "-f", "xue", "-q").out == "doi-10.1145-3847110\n"
@@ -152,7 +152,7 @@ def test_keep_later_skip(filled, run):
     keys = r.out.split()
     assert r.code == 0 and len(keys) == 2
     p = json.loads(run("show", keys[0], "--json").out)
-    assert (p["status"], p["tags"], p["source"]) == ("to-read", ["gp"], "feed:xue")
+    assert (p["status"], p["tags"], p["source"]) == ("read", ["gp"], "feed:xue") and p["read_on"]
     assert "## Notes" in (filled / p["path"]).read_text()
     assert git_log(filled)[0] == f"ruru: keep {keys[0]} {keys[1]} (tags: gp)"
     r = run("later", "doi-10.1002-jat.70468")

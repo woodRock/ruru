@@ -74,10 +74,12 @@ A library is a git repository (default `~/papers`; set in `~/.config/ruru/config
 ruru init ~/papers --email you@example.org
 ruru add --bib refs.bib -t gc-ms           # import BibTeX (keys regenerated; --keep-key to keep them)
 ruru list -s to-read
+ruru list -p none --sort year              # in no project, newest year first (--sort added|key|year|status|title, -r)
 ruru search retention time alignment
 ruru show wood2026joint --bib
 ruru tag wood2026joint +key-paper -todo
 ruru status wood2026joint read
+ruru rm wood2026joint                     # remove a paper (one commit; `git revert` brings it back)
 ruru note wood2026joint                    # your notes, in $EDITOR
 ```
 
@@ -87,8 +89,10 @@ ruru note wood2026joint                    # your notes, in $EDITOR
 ruru feeds wizard                          # interactive: arXiv categories, journals, authors, topics
 ruru fetch                                 # new items only: not in the library, inbox or seen.jsonl
 ruru inbox                                 # newest first; `ruru show ID` for the abstract
-ruru keep doi-10.1021-acs.analchem.6c03760 -t gc-ms
-ruru later arxiv-2610.01234                # kept, with status `later`
+ruru keep doi-10.1021-acs.analchem.6c03760 -t gc-ms     # into the library as read
+ruru later arxiv-2610.01234                # into the library as `later`: the reading list
+ruru status guan2026sphere read            # done reading: off the reading list
+ruru unkeep guan2026sphere                 # back to the inbox, as new (not with notes, a PDF or a project)
 ruru skip arxiv-2610.01235                 # remembered, never fetched again
 ```
 
@@ -112,18 +116,46 @@ To look for papers outside your feeds: `ruru find retention time alignment gc-ms
 
 ## The terminal UI
 
-`ruru tui` (needs the `[tui]` extra) shows the inbox, the library and your projects side by side
-with details, and reloads by itself when an agent, a scheduled fetch or the CLI changes the
+`ruru tui` (needs the `[tui]` extra) shows the inbox, your reading list (kept, not read yet:
+status to-read, later or reading), reviews, the library (read) and your projects, each with details, and reloads by itself when an agent, a scheduled fetch or the CLI changes the
 library. Every key calls the same code as the CLI, so each action is committed as usual.
 
 | where | keys |
 |---|---|
-| everywhere | `1` `2` `3` tabs · `j`/`k` move · `/` filter (`t:TAG p:PROJECT s:STATUS f:FEED` and words) · `r` reload · `q` quit |
-| Inbox | `y` keep · `n` skip · `l` later · `a` accept the agent's suggestion · `t` keep with tags · `p` keep for a project · `o` open URL · `f` fetch |
-| Library | `enter` open · `t` tag (`+a -b`) · `s` status · `e` edit your notes in `$EDITOR` · `d` PDF (open, or fetch the open-access one) · `o` open URL |
+| everywhere | `1`–`5` tabs (inbox, reading list, reviews, library, projects) · `j`/`k` move · `/` filter (`t:TAG p:PROJECT s:STATUS f:FEED` and words; `p:none` for papers in no project) · `r` reload · `q` quit |
+| Inbox | new (unviewed) items are **bold** until the cursor rests on one for a second · `u` mark new/seen · `y` keep (as read) · `n` skip · `l` reading list · `a` accept the agent's suggestion · `t` keep with tags · `p` keep for a project · `o` open URL · `f` fetch |
+| Reviews | new reviews are **bold** · `y` keep · `n` discard · `o`/`enter` open the web page · `/` filter (words, `t:TAG`) |
+| Reading list, Library | `y` mark read (reading list, or a paper's screen) · `enter` open · `d` PDF (open; else open access; else the publisher page) · `t` tag (`+a -b`) · `s` status · `e` edit your notes in `$EDITOR` · `o` open URL · `x` remove (asks first) · `S` sort: added (newest first), key, year, status, title |
 | Projects | reading list and citation check per project · `c` re-check |
 
 In the inbox, `+`, `-` and `~` mark items an agent suggested keeping, skipping or reading later.
+
+## Reviews
+
+A review is a short synthesis of a few related papers on your reading list, written for you by an
+agent (the skill's "Reviews" workflow): why they matter to your work, one paragraph per paper, a
+comparison, what to take from them, and a reading order. Reviews live in `reviews/<id>.md`
+(front matter + Markdown citing papers as `[@key]`), are committed like everything else, and arrive
+as **new** in the TUI's Reviews tab, where `y` keeps one, `n` discards it (git keeps a copy) and `o`
+opens it as a clean, self-contained web page (TeX math between `$…$` or `$$…$$` drawn as MathML)
+with every cited paper's card (status, tags, DOI,
+your notes, the abstract). Your own `## Notes` stay for what you have read and understood.
+
+`ruru review add` refuses a review of papers that aren't on the reading list or have no PDF:
+every review rests on the full texts. To get the paywalled ones through your institution:
+
+```bash
+ruru pdf missing -t robust-estimation --open   # opens each DOI page; sign in and download
+                                               # save each as KEY.pdf in ~/Downloads, then:
+ruru pdf add                                   # files every ~/Downloads/KEY.pdf as papers/KEY/paper.pdf
+ruru pdf add ~/Desktop/batch                   # or a folder of KEY.pdf files; --key KEY for one odd name
+ruru review                                    # the reviews, new ones marked ●
+ruru review open 2026-10-18-robust-alignment   # the web page (written to .ruru/reviews/, not committed)
+```
+
+In the TUI, `d` on a paper without a PDF tries the open-access copy and otherwise opens the
+publisher's page with `KEY.pdf` on the clipboard for the save dialog. Set `downloads = "…"` in
+`~/.config/ruru/config.toml` if your browser saves elsewhere.
 
 ## Export
 
@@ -236,18 +268,21 @@ Code permission rule. In `~/.claude/settings.json` (or a project's `.claude/sett
       "Bash(ruru inbox:*)", "Bash(ruru feeds list:*)", "Bash(ruru project list:*)",
       "Bash(ruru doctor:*)", "Bash(ruru export:*)",
       "Bash(ruru fetch:*)", "Bash(ruru suggest:*)", "Bash(ruru note:*)", "Bash(ruru tag:*)",
-      "Bash(ruru skip:*)", "Bash(ruru unskip:*)", "Bash(ruru seen:*)"
+      "Bash(ruru skip:*)", "Bash(ruru unskip:*)", "Bash(ruru seen:*)",
+      "Bash(ruru review list:*)", "Bash(ruru review show:*)", "Bash(ruru review add:*)",
+      "Bash(ruru pdf missing:*)", "Bash(ruru pdf add:*)"
     ],
     "deny": [
-      "Bash(ruru keep:*)", "Bash(ruru later:*)", "Bash(ruru cite:*)",
+      "Bash(ruru keep:*)", "Bash(ruru later:*)", "Bash(ruru cite:*)", "Bash(ruru rm:*)", "Bash(ruru unkeep:*)",
       "Bash(ruru feeds add:*)", "Bash(ruru feeds remove:*)",
-      "Bash(ruru project add:*)", "Bash(ruru project remove:*)"
+      "Bash(ruru project add:*)", "Bash(ruru project remove:*)",
+      "Bash(ruru review keep:*)", "Bash(ruru review discard:*)"
     ]
   }
 }
 ```
 
-Everything else (`add`, `refresh`, `enrich`, `pdf --fetch`, `status`, `check`) asks first. `check` stays off
+Everything else (`add`, `refresh`, `enrich`, `pdf --fetch`, `review open`, `status`, `check`) asks first. `check` stays off
 the allow list because `check --fix` cites. The rules match the start of the command, so agents
 should not put options before the subcommand (`ruru -L … keep` would slip past a deny rule); the
 skill tells them not to, and every agent write is a git commit you can inspect and revert.

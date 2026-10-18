@@ -118,13 +118,33 @@ the user config is `~/.config/ruru/config.toml` on macOS too.
   record with a different normalised title or one whose new id belongs to another paper.
   `ruru add --bib` stays offline and then `cli.spawn`s `python -m ruru enrich KEYS` detached (log
   `.ruru/enrich.log`, `--no-enrich` to skip); conftest replaces `cli.spawn` (`spawned` fixture).
+- `ops.remove` (`ruru rm`, `x` in the TUI): deletes paper.md/paper.bib (and the git-ignored PDF) in
+  one commit and appends a `remove` record to seen.jsonl so feeds don't bring the paper back.
+- `ops.unkeep` (`ruru unkeep`): library → inbox as a new item (today's fetch date, the original
+  `published` from git history, tags kept in the item); refuses notes, a PDF or a project; drops
+  the keep/later record from seen.jsonl. Inbox items carry `tags` only when non-empty.
+- Viewed: `inbox.read_viewed`/`write_viewed` (`.ruru/viewed.json`, git-ignored, pruned to the
+  inbox's ids). Only the TUI marks (cursor rests `VIEW_SECONDS` on an item, or `u`); unbolded rows
+  are viewed. `unkeep`/`unskip` make an item new again. `--json` items have `viewed`.
+- `reviews.py` + `ops.add_review`/`triage_reviews`: `reviews/<id>.md` (front matter `REVIEW_FIELDS`,
+  Markdown body citing `[@key]`; `problems()` for self-consistency). `add_review` refuses papers not
+  in `model.UNREAD` or without a PDF; status `new` → `kept`, or discarded (deleted). Rendered on
+  demand by `export/review_html.py` (markdown-it, raw HTML off, no scripts; `$…$`/`$$…$$` via
+  mdit-py-plugins' dollarmath and latex2mathml to MathML) to `.ruru/reviews/` via
+  `cli.render_review_file`. TUI tab 3 (`y` keep, `n` discard, `o` open).
+- PDFs: `ruru pdf` is a group (`show`, `add`, `missing`); `main` rewrites `ruru pdf KEY …` to
+  `pdf show KEY …`. `ops.add_pdfs` moves `KEY.pdf` files (or `--key`) into `papers/KEY/` after a
+  `%PDF` check; `cli.downloads_dir()` (`downloads` in the user config, default ~/Downloads).
+  `cli.browse_for_pdf` opens `ops.paper_link` and puts `KEY.pdf` on the clipboard; conftest
+  replaces `webbrowser.open` and `cli.copy_to_clipboard` (`browsed`, `clipboard` fixtures).
 - `ops.rekey`: the only way a key changes; moves the directory (and the git-ignored PDF), commits,
   and reports the projects whose .tex/.bib still use the old key.
 - `skills/ruru/SKILL.md`: the agent-facing workflows and rules. `tests/test_skill_docs.py` checks
   that every `ruru …` it (and the README, docs, this file) shows as code exists, and that the
   README's permission rules deny keep/skip/cite. Update the skill when commands change.
-- `tui.py`: Textual app (`RuruApp`), only imported by `cli.cmd_tui`. Tabs Inbox / Library /
-  Projects; every action calls `ops` (`triage`, `suggest`, `tag`, `set_status`, `set_notes`,
+- `tui.py`: Textual app (`RuruApp`), only imported by `cli.cmd_tui`. Tabs Inbox / Reading list
+  (`model.UNREAD` statuses) / Reviews / Library (read) / Projects; `y` keeps as read in the inbox and marks read
+  on the reading list or a paper screen (`check_action` filters `triage` by its parameter); every action calls `ops` (`triage`, `suggest`, `tag`, `set_status`, `set_notes`,
   `fetch_pdf`, `fetch`, `check`); network work runs in `@work(thread=True)` workers. `fingerprint`
   (mtimes of `.git/index`, settings, seen.jsonl, papers/, inbox/ dirs) is polled every 2 s to reload
   on outside changes. `open_file`/`webbrowser.open`/`cli.edit_text` are the seams tests patch.
@@ -135,7 +155,8 @@ the user config is `~/.config/ruru/config.toml` on macOS too.
   README image. Change the art here only; everything else renders from it.
 - `wizard.py`: `ruru feeds wizard` (the only prompting command; refuses without a TTY). Injected
   `ask`/`say` for tests; every feed goes through `ops.add_feed`.
-- `search.py`: linear, accent-insensitive AND search with field weights.
+- `search.py`: linear, accent-insensitive AND search with field weights; `SORTS`/`sort_papers` and
+  `in_project` (`NO_PROJECT = "none"`, a reserved project name) shared by `ruru list` and the TUI.
 - `output.py`: colour (`style`), `paper_json` (the docs/json.md schema), `paper_line`.
 - `cli.py`: network work happens before `lib.transaction()` (never hold the lock across HTTP), and
   writes after it re-read the paper and apply only metadata. `_exit_code` maps per-item failures to

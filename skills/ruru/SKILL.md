@@ -13,12 +13,13 @@ with examples. This skill is about workflow and judgement.
 ## Ground rules
 
 - **Read freely; write only through** `ruru note KEY --agent`, `ruru tag`, `ruru suggest`,
-  `ruru fetch`, and `ruru skip`/`ruru unskip` for inbox items (see "Weekly triage").
+  `ruru fetch`, `ruru skip`/`ruru unskip` for inbox items (see "Weekly triage"), `ruru review add`
+  (see "Reviews") and `ruru pdf add` (filing PDFs Jesse downloaded).
 - **Never add to the library or a paper: never run `ruru keep`, `ruru later` or `ruru cite`**, and
   never `ruru check --fix`/`--prune` (they cite). `later` counts: it puts the paper in the library.
   Those are Jesse's decisions; recommend them with `ruru suggest`, or tell him the exact command to
-  run. Don't change feeds or projects (`ruru feeds add/remove`, `ruru project add/remove`) unless
-  he asks.
+  run. Never remove papers (`ruru rm`, `ruru unkeep`) either. Don't change feeds or projects
+  (`ruru feeds add/remove`, `ruru project add/remove`) unless he asks.
 - **Never edit library files directly.** Everything goes through the CLI, which locks, writes
   atomically and commits each change, so Jesse can see and revert what you did.
 - **Use `--json`** for anything you parse, and `-q` for keys to chain. The schema is in the repo's
@@ -52,10 +53,12 @@ with examples. This skill is about workflow and judgement.
      `ruru skip ID… --by claude --reason "…"`. Group items that share a reason into one command
      (one commit). Skip only when you are confident from what you read; the journal feeds are
      mostly off-topic bulk.
-   - **Possibly relevant: suggest, never skip.** `ruru suggest ID keep --reason "…"` for papers he
-     would cite or read this month, `ruru suggest ID later --reason "…"` for relevant but not
-     urgent. Tie each reason to a project or method. When unsure between skip and later, suggest
+   - **Possibly relevant: suggest, never skip.** `ruru suggest ID keep --reason "…"` only for papers
+     Jesse has evidently read already (`keep` files a paper as read); `ruru suggest ID later
+     --reason "…"` for papers to read (`later` puts them on his reading list). Tie each reason to a project or method. When unsure between skip and later, suggest
      later: a wrong skip hides a paper, a wrong suggestion costs him a glance.
+   - Reading the inbox never marks items as seen: only Jesse's TUI does (`viewed` in the JSON), so
+     your suggestions sit on items that stay bold for him until he looks.
    - Say what each judgement rests on: end reasons with "(title only)" when there was no abstract.
 4. Summarise for Jesse: the suggested keeps with their reasons, the suggested laters, how many you
    skipped (and the main reasons), and anything surprising. Remind him he can audit and undo:
@@ -66,19 +69,71 @@ with examples. This skill is about workflow and judgement.
 ## Finding and reading papers
 
 - `ruru search WORDS --json`: every word must match somewhere in metadata, notes or agent notes.
-- `ruru list -t TAG -p PROJECT -s STATUS --json` to filter.
+- `ruru list -t TAG -p PROJECT -s STATUS --json` to filter (`-p none`: in no project;
+  `--sort added|key|year|status|title`, `-r` to reverse).
 - `ruru show KEY --json` for one paper, with Jesse's `notes` and the `agent_notes`; read the
   `paper.md` the `path` points to if you need it verbatim.
 - `ruru find WORDS --json` searches OpenAlex for papers not yet in the library; each result's `id`
   is what `ruru add` takes, and `in_library` gives the key if Jesse already has it.
 
-## Notes
+## Reviews
 
-- `ruru note KEY --agent --kind summary -m "…"` (or `-F file.md`, `-F -` for stdin) appends a dated,
+A review is a short synthesis of a few related papers on Jesse's **reading list** (status to-read,
+later or reading; never inbox items, never papers he has read), written for him: why they matter
+to his work and how they compare. It lands in the TUI's Reviews tab as new, and he keeps or
+discards it. `ruru review add` refuses a paper that isn't on the reading list or has no PDF.
+
+1. **Pick the group.** Related reading-list papers, usually 2–6: `ruru list -s to-read -t TAG --json`
+   (also `-s later`, `-s reading`), a project (`-p PROJECT`), or what Jesse names. Read
+   `ruru project list --json` and his `own-work` papers (`ruru list -t own-work --json`) so you can
+   say how the group bears on his work.
+2. **Get every PDF; the review needs each full text.** `ruru pdf missing KEY… --json` lists the
+   missing ones. Try `ruru pdf KEY --fetch` (open access) for each. For the rest, stop and give
+   Jesse the list with links: he runs `ruru pdf missing KEY… --open`, signs in with his institution,
+   saves each as `KEY.pdf` in Downloads, and tells you; then run `ruru pdf add` (it files every
+   `KEY.pdf` in ~/Downloads into the library) and check `ruru pdf missing KEY…` is empty.
+3. **Read the full texts** (`ruru pdf KEY` prints the path; read the PDF with your file tool, in
+   page ranges for long papers). Quote numbers and claims from the paper, not from memory.
+4. **Write the review** as Markdown with front matter, citing papers only as `[@key]` or
+   `[@a; @b]` (each listed paper at least once, nothing unlisted):
+
+   ```markdown
+   ---
+   title: Robust estimation for retention-time alignment
+   papers: [huber, olson2013, sunderhauf2012]
+   tags: [robust-estimation]
+   ---
+
+   ## Why this matters to you
+   (2–4 sentences tied to a named project or own-work paper.)
+
+   ## The papers
+   (One short paragraph each: the problem, the method, the evidence, with the numbers.)
+
+   ## How they compare
+   (A table: approach, assumptions, data, results, limits. Then where they agree and disagree.)
+
+   ## For your work
+   (What to borrow, what to test, what to cite and where. Concrete.)
+
+   ## Reading order
+   (Which to read first and why; which sections matter.)
+   ```
+
+   Write mathematics as TeX: `$\theta_i - \theta_j$` inline, `$$ … $$` on its own lines for
+   display (it renders as MathML on the page; never write `theta_i` or `R_i^-1` as plain text).
+   Keep it under ~1200 words; be specific, never generic. Don't put summaries in paper notes:
+   Jesse's `## Notes` are for what he has read and understood himself.
+5. **File it:** `ruru review add draft.md --by claude` (write the draft to a scratch file first).
+   A review still `new` can be rewritten with `--replace`. Tell Jesse its id; he reads it with `o`
+   in the TUI's Reviews tab or `ruru review open ID`.
+
+## Agent notes
+
+- `ruru note KEY --agent --kind KIND -m "…"` (or `-F file.md`, `-F -` for stdin) appends a dated,
   attributed entry under `## Agent notes`. It never touches Jesse's `## Notes`; never try to.
-- Start every summary with what it is based on: "Abstract only." or "Full text (paper.pdf)."
-- Useful kinds: `summary`, `methods`, `relevance` (to a named project), `critique`. Keep entries
-  short and factual; quote numbers from the paper, not from memory.
+- Keep agent notes to short facts Jesse asked for (`methods`, `relevance` to a named project);
+  syntheses belong in a review. Say what a note rests on: "Abstract only." or "Full text."
 - Tag sparingly with `ruru tag KEY +tag`, reusing tags that exist (`ruru list --json` shows them).
 
 ## Before writing a section
@@ -97,6 +152,7 @@ with examples. This skill is about workflow and judgement.
   starts it in the background). A paper still without an abstract afterwards has none upstream:
   say so, and don't write a summary from the title.
 - `ruru pdf KEY --fetch` downloads an open-access PDF when one exists; it never bypasses paywalls.
+  For paywalled papers Jesse downloads them himself (see "Reviews", step 2).
 - `ruru export json` writes the whole library as one JSON document; `ruru export bib -p PROJECT`
   writes a project's papers as BibTeX.
 - `ruru doctor` checks setup and API access when something seems wrong.

@@ -3,7 +3,8 @@
 Ids are short and stable, derived from the item's identifiers: `arxiv-2610.01234`,
 `doi-10.1021-acs.analchem.6b01234`, `oa-W4392…`, or `rss-<hash>` when there is nothing better.
 Every triage decision is appended to `seen.jsonl`, which, with the library and the inbox, is what
-`fetch` dedupes against.
+`fetch` dedupes against. Which items Jesse has looked at in the TUI is local UI state in
+`.ruru/viewed.json` (git-ignored): agents reading the inbox through the CLI never mark anything.
 """
 
 from __future__ import annotations
@@ -22,13 +23,14 @@ import yaml
 
 from ruru import model
 from ruru.errors import UsageError
+from ruru.fsutil import atomic_write
 from ruru.model import ID_KINDS, Paper, norm_id
 from ruru.text import norm_title
 
-# Inbox-only fields, around the paper's bibliographic ones.
+# Inbox-only fields, around the paper's bibliographic ones (and tags, kept by `ruru unkeep`).
 ITEM_FIELDS = (
     "id", "title", "authors", "year", "venue", "type", "volume", "issue", "pages", "publisher", "ids",
-    "url", "pdf_url", "abstract", "source", "published", "fetched", "suggestion",
+    "url", "pdf_url", "abstract", "tags", "source", "published", "fetched", "suggestion",
 )
 _PAPER_FIELDS = tuple(f for f in ITEM_FIELDS if f in model.FIELDS)
 DECISIONS = ("keep", "skip", "later")
@@ -65,7 +67,7 @@ class Item:
     def front_matter(self) -> dict[str, Any]:
         fm = self.paper.front_matter()
         out: dict[str, Any] = {"id": self.id}
-        out |= {k: fm[k] for k in _PAPER_FIELDS}
+        out |= {k: fm[k] for k in _PAPER_FIELDS if k != "tags" or fm[k]}  # tags only on an unkept paper
         out |= {"published": self.published, "fetched": self.fetched, "suggestion": self.suggestion}
         return out
 
@@ -117,6 +119,27 @@ class Inbox:
 
     def exists(self, item_id: str) -> bool:
         return self.dir.is_dir() and any(self.dir.glob(f"*/{item_id}.md"))
+
+
+# --- viewed (TUI only) ---------------------------------------------------------------------------
+
+def _viewed_path(root: Path) -> Path:
+    return root / ".ruru" / "viewed.json"
+
+
+def read_viewed(root: Path) -> set[str]:
+    """Ids of the inbox items Jesse has looked at in the TUI; everything else shows as new."""
+    try:
+        data = json.loads(_viewed_path(root).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return set()
+    return {str(i) for i in data} if isinstance(data, list) else set()
+
+
+def write_viewed(root: Path, ids: set[str]) -> None:
+    """Keeps only ids still in the inbox, so an item that comes back (`unkeep`, `unskip`) is new."""
+    present = {p.stem for p in (root / "inbox").glob("*/*.md")}
+    atomic_write(_viewed_path(root), json.dumps(sorted(ids & present)) + "\n")
 
 
 # --- seen.jsonl ----------------------------------------------------------------------------------

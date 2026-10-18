@@ -7,5 +7,6 @@ digest) are generated from.
 
 from ruru.export.bib import export_bib
 from ruru.export.document import SCHEMA_VERSION, export_document
+from ruru.export.review_html import render as render_review
 
-__all__ = ["SCHEMA_VERSION", "export_bib", "export_document"]
+__all__ = ["SCHEMA_VERSION", "export_bib", "export_document", "render_review"]

@@ -12,9 +12,11 @@ import importlib
 import json
 import os
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
+import webbrowser
 from collections.abc import Callable, Sequence
 from datetime import date
 from pathlib import Path
@@ -26,12 +28,14 @@ from ruru.bibtex import ENCODINGS, parse_bibtex, to_bibtex
 from ruru.config import config_path, resolve_library, secret, write_user_config
 from ruru.errors import LOCKED, NO_MATCH, OK, PARTIAL, USAGE, NothingMatched, RuruError, UsageError
 from ruru.fsutil import atomic_write
-from ruru.inbox import DECISIONS, Inbox, Item, UnknownItem, read_seen
+from ruru.inbox import DECISIONS, Inbox, Item, UnknownItem, read_seen, read_viewed
 from ruru.library import Library
 from ruru.model import Paper
 from ruru.output import color_enabled, emit_json, item_json, item_line, paper_json, paper_line, style, warn
 from ruru.resolve import Resolver, apply_metadata, changes, openalex, parse_identifier
-from ruru.search import search
+from ruru.reviews import STATUSES as REVIEW_STATUSES
+from ruru.reviews import Review, Reviews
+from ruru.search import SORTS, in_project, search, sort_papers
 
 # The exit codes are re-exported: tests and scripts refer to cli.OK etc.
 __all__ = ["LOCKED", "NO_MATCH", "OK", "PARTIAL", "USAGE", "build_parser", "main"]
@@ -232,11 +236,11 @@ def cmd_list(args: argparse.Namespace) -> int:
     papers = [
         p for p in lib.papers()
         if all(_tag(t) in p.tags for t in args.tag or [])
-        and (not args.project or args.project in p.projects)
+        and (not args.project or in_project(p, args.project))
         and (not args.status or p.status == args.status)
         and (not args.since or (p.added is not None and p.added >= args.since))
     ]
-    papers.sort(key=lambda p: (p.added or date.min, p.key), reverse=True)
+    papers = sort_papers(papers, args.sort, reverse=args.reverse)
     _print_papers(lib, papers, args)
     if not papers:
         if not args.json:
@@ -356,6 +360,15 @@ def edit_text(text: str) -> str:
         os.unlink(path)
 
 
+def cmd_rm(args: argparse.Namespace) -> int:
+    lib = _open(args)
+    for p in ops.remove(lib, args.keys):
+        print(p.key if args.quiet else f"removed {p.key}: {p.title}")
+        if p.projects:
+            warn(f"{p.key} was in {', '.join(p.projects)}; `ruru check PROJECT` shows where it is still cited")
+    return OK
+
+
 def cmd_note(args: argparse.Namespace) -> int:
     lib = _open(args)
     p = lib.get(args.key)
@@ -458,18 +471,100 @@ def cmd_enrich(args: argparse.Namespace) -> int:
     return _exit_code(failures, len(results))
 
 
+def cmd_pdf_add(args: argparse.Namespace) -> int:
+    lib = _open(args)
+    paths = [Path(p).expanduser() for p in args.paths] or [downloads_dir()]
+    filed, refused = ops.add_pdfs(lib, paths, key=args.key, force=args.force)
+    for key, src in filed:
+        print(key if args.quiet else f"{key}: {src} -> {_rel(lib, key).replace('paper.md', 'paper.pdf')}")
+    for src, problem in refused:
+        warn(f"{src}: {problem}")
+    if not filed and not refused:
+        print(f"no PDFs named after a library key in {', '.join(map(str, paths))} (save them as KEY.pdf)",
+              file=sys.stderr)
+        return NO_MATCH
+    return OK if not refused else (USAGE if not filed else PARTIAL)
+
+
+def cmd_pdf_missing(args: argparse.Namespace) -> int:
+    lib = _open(args)
+    if args.keys:
+        papers = [lib.get(k) for k in args.keys]
+    else:
+        papers = [p for p in lib.papers() if (args.all or p.status in model.UNREAD)
+                  and (not args.project or in_project(p, args.project))
+                  and all(_tag(t) in p.tags for t in args.tag or [])]
+    missing = [p for p in sort_papers(papers, "key") if not lib.has_pdf(p.key)]
+    if args.json:
+        emit_json([{"key": p.key, "title": p.title, "link": ops.paper_link(p), "save_as": f"{p.key}.pdf"}
+                   for p in missing])
+    elif args.quiet:
+        for p in missing:
+            print(p.key)
+    else:
+        for p in missing:
+            print(f"{style(f'{p.key:<28}', 'bold')} {ops.paper_link(p) or style('(no link)', 'dim')}  {p.title}")
+    if args.open:
+        openable = [p for p in missing if ops.paper_link(p)][:MAX_TABS]
+        for p in openable:
+            webbrowser.open(ops.paper_link(p) or "")
+        if len(missing) > len(openable):
+            warn(f"opened {len(openable)} of {len(missing)}; run it again after `ruru pdf add`")
+    if missing and not args.json and not args.quiet:
+        print(f"save each as KEY.pdf in {downloads_dir()}, then `ruru pdf add`", file=sys.stderr)
+    if not missing:
+        if not args.json:
+            print("every paper here has its PDF", file=sys.stderr)
+        return NO_MATCH
+    return OK
+
+
+PDF_ACTIONS = ("show", "add", "missing")
+MAX_TABS = 10  # `pdf missing --open` opens at most this many browser tabs at once
 opener = "open" if sys.platform == "darwin" else "xdg-open"
+
+
+def copy_to_clipboard(text: str) -> bool:
+    """Put `text` on the clipboard (pbcopy on macOS, wl-copy/xclip elsewhere); False if none is there."""
+    for cmd in (["pbcopy"], ["wl-copy"], ["xclip", "-selection", "clipboard"]):
+        if shutil.which(cmd[0]):
+            return subprocess.run(cmd, input=text.encode(), check=False).returncode == 0
+    return False
+
+
+def browse_for_pdf(p: Paper) -> str | None:
+    """Open the paper's DOI page (where an institutional sign-in works) and put `KEY.pdf` on the
+    clipboard for the save dialog. Returns the link, or None if the paper has none."""
+    link = ops.paper_link(p)
+    if link:
+        webbrowser.open(link)
+        copy_to_clipboard(f"{p.key}.pdf")
+    return link
+
+
+def downloads_dir() -> Path:
+    """Where `ruru pdf add` looks by default: `downloads` in the user config, else ~/Downloads."""
+    return Path(secret("downloads") or "~/Downloads").expanduser()
 
 
 def cmd_pdf(args: argparse.Namespace) -> int:
     lib = _open(args)
     p = lib.get(args.key)
     path = lib.paper_dir(p.key) / "paper.pdf"
+    if args.browser:
+        link = browse_for_pdf(p)
+        if not link:
+            raise NothingMatched(f"{p.key}: no DOI or URL to open")
+        print(link)
+        print(f"save it as {p.key}.pdf (on the clipboard) in {downloads_dir()}, then `ruru pdf add`",
+              file=sys.stderr)
+        return OK
     if args.fetch and (args.force or not path.exists()):
         with client_for(lib) as client:
             ops.fetch_pdf(lib, client, p.key, force=args.force)
     if not path.exists():
-        raise NothingMatched(f"{p.key}: no PDF; try `ruru pdf {p.key} --fetch`")
+        raise NothingMatched(f"{p.key}: no PDF; `ruru pdf {p.key} --fetch` (open access) or `--browser` "
+                             "(the publisher's page, to download it yourself)")
     if args.open:
         subprocess.run([opener, str(path)], check=False)
     print(path)
@@ -521,7 +616,8 @@ def cmd_inbox(args: argparse.Namespace) -> int:
     if args.number:
         items = items[:args.number]
     if args.json:
-        emit_json([item_json(i, lib.root) for i in items])
+        viewed = read_viewed(lib.root)
+        emit_json([item_json(i, lib.root, viewed) for i in items])
     elif args.quiet:
         for i in items:
             print(i.id)
@@ -560,6 +656,13 @@ def cmd_skip(args: argparse.Namespace) -> int:
     return _triage(args, "skip")
 
 
+def cmd_unkeep(args: argparse.Namespace) -> int:
+    lib = _open(args)
+    for item in ops.unkeep(lib, args.keys):
+        print(item.id if args.quiet else f"back in the inbox as {item.id}: {item.paper.title}")
+    return OK
+
+
 def cmd_unskip(args: argparse.Namespace) -> int:
     lib = _open(args)
     for item in ops.unskip(lib, args.ids):
@@ -584,7 +687,7 @@ def cmd_seen(args: argparse.Namespace) -> int:
         for r in records:
             who = f"  ({r['by']}: {r.get('reason', '')})" if r.get("by") else ""
             key = f" -> {r['key']}" if r.get("key") else ""
-            print(f"{r.get('date')}  {r.get('decision'):<5} {r.get('id')}{key}  {r.get('title', '')}"
+            print(f"{r.get('date')}  {r.get('decision'):<6} {r.get('id')}{key}  {r.get('title', '')}"
                   + style(who, "dim"))
     if not records:
         if not args.json:
@@ -678,6 +781,86 @@ def cmd_find(args: argparse.Namespace) -> int:
             print("nothing found", file=sys.stderr)
         return NO_MATCH
     return OK
+
+
+def review_json(r: Review, root: Path, body: bool = False) -> dict[str, object]:
+    fm = r.front_matter()
+    out: dict[str, object] = {k: (v.isoformat() if isinstance(v, date) else v) for k, v in fm.items()}
+    out["path"] = str(r.path.relative_to(root)) if r.path else None
+    if body:
+        out["body"] = r.body
+    return out
+
+
+def cmd_review_list(args: argparse.Namespace) -> int:
+    lib = _open(args)
+    found = [r for r in Reviews(lib.root).all() if not args.status or r.status == args.status]
+    if args.json:
+        emit_json([review_json(r, lib.root) for r in found])
+    elif args.quiet:
+        for r in found:
+            print(r.id)
+    else:
+        for r in found:
+            mark = style("●", "yellow") if r.status == "new" else " "
+            line = f"{r.id:<50} {len(r.papers):>2} papers  {r.title}"
+            print(f"{mark} {style(line, 'bold') if r.status == 'new' else line}")
+    if not found:
+        if not args.json:
+            print("no reviews yet: see `ruru review add -h`", file=sys.stderr)
+        return NO_MATCH
+    return OK
+
+
+def cmd_review_show(args: argparse.Namespace) -> int:
+    lib = _open(args)
+    r = Reviews(lib.root).get(args.id)
+    if args.json:
+        emit_json(review_json(r, lib.root, body=True))
+    else:
+        print(f"# {r.title}\n\n{r.body}")
+    return OK
+
+
+def cmd_review_add(args: argparse.Namespace) -> int:
+    lib = _open(args)
+    text = sys.stdin.read() if args.file == "-" else Path(args.file).read_text(encoding="utf-8")
+    r = ops.add_review(lib, text, by=args.by, replace=args.replace)
+    print(r.id if args.quiet else f"filed review {r.id} ({len(r.papers)} papers): `ruru review open {r.id}`")
+    return OK
+
+
+def render_review_file(lib: Library, review_id: str) -> Path:
+    """Render a review to .ruru/reviews/<id>.html (git-ignored; regenerated every time)."""
+    from ruru.export import render_review
+    r = Reviews(lib.root).get(review_id)
+    path = lib.root / ".ruru" / "reviews" / f"{r.id}.html"
+    atomic_write(path, render_review(lib, r))
+    return path
+
+
+def cmd_review_open(args: argparse.Namespace) -> int:
+    lib = _open(args)
+    path = render_review_file(lib, args.id)
+    if not args.no_open:
+        webbrowser.open(path.as_uri())
+    print(path)
+    return OK
+
+
+def _review_triage(args: argparse.Namespace, decision: str) -> int:
+    lib = _open(args)
+    for r in ops.triage_reviews(lib, args.ids, decision):
+        print(r.id if args.quiet else f"{decision}: {r.id}")
+    return OK
+
+
+def cmd_review_keep(args: argparse.Namespace) -> int:
+    return _review_triage(args, "keep")
+
+
+def cmd_review_discard(args: argparse.Namespace) -> int:
+    return _review_triage(args, "discard")
 
 
 def cmd_project_list(args: argparse.Namespace) -> int:
@@ -894,12 +1077,17 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("-t", "--tag", action="append", metavar="TAG", help="repeatable")
     p.add_argument("-p", "--project", action="append", metavar="PROJECT", help="repeatable")
 
-    p = command("list", cmd_list, "list papers, newest first",
+    p = command("list", cmd_list, "list papers, newest first (or --sort)",
                 ["ruru list -s to-read", "ruru list -t gc-ms -t alignment --json",
+                 "ruru list -p none                  papers in no project",
+                 "ruru list --sort year -r           oldest first",
                  "ruru list --since 2026-10-01 -q"],
                 [read])
     p.add_argument("-t", "--tag", action="append", metavar="TAG", help="must have this tag (repeatable)")
-    p.add_argument("-p", "--project", metavar="PROJECT")
+    p.add_argument("-p", "--project", metavar="PROJECT", help="in this project ('none': in no project)")
+    p.add_argument("--sort", choices=SORTS, default=SORTS[0],
+                   help="added (default) and year: newest first; key, title: A-Z; status: to-read … read")
+    p.add_argument("-r", "--reverse", action="store_true", help="reverse the order")
     p.add_argument("-s", "--status", choices=model.STATUSES)
     p.add_argument("--since", type=_date, metavar="DATE", help="added on or after DATE (YYYY-MM-DD)")
 
@@ -914,6 +1102,11 @@ def build_parser() -> argparse.ArgumentParser:
                 ["ruru search retention time alignment", "ruru search 'Nguyen' --json", "ruru search gc-ms -q"],
                 [read])
     p.add_argument("query", nargs="+")
+
+    p = command("rm", cmd_rm, "remove papers from the library (one commit; `git revert` brings them back)",
+                ["ruru rm wood2026joint", "ruru rm $(ruru list -t junk -q)"],
+                [write, quiet])
+    p.add_argument("keys", nargs="+", metavar="KEY")
 
     p = command("tag", cmd_tag, "add (+TAG) and remove (-TAG) tags",
                 ["ruru tag wood2026joint +gc-ms -todo", "ruru tag key1 key2 +survey -q"],
@@ -983,11 +1176,17 @@ def build_parser() -> argparse.ArgumentParser:
                 [write, quiet])
     p.add_argument("ids", nargs="+", metavar="ID")
 
+    p = command("unkeep", cmd_unkeep, "move papers from the library back to the inbox, as new",
+                ["ruru unkeep guan2026sphere",
+                 "ruru list -p none -s to-read -q | xargs ruru unkeep     (refuses papers with notes or a PDF)"],
+                [write, quiet])
+    p.add_argument("keys", nargs="+", metavar="KEY")
+
     p = command("seen", cmd_seen, "past triage decisions, newest first (seen.jsonl)",
                 ["ruru seen -n 20", "ruru seen -d skip --by claude --since 2026-10-17",
                  "ruru seen --json"],
                 [read])
-    p.add_argument("-d", "--decision", choices=DECISIONS)
+    p.add_argument("-d", "--decision", choices=(*DECISIONS, "remove"))
     p.add_argument("--by", metavar="NAME", help="only decisions made by this agent")
     p.add_argument("--since", type=_date, metavar="DATE", help="on or after DATE (YYYY-MM-DD)")
     p.add_argument("-n", "--number", type=int, metavar="N", help="at most N")
@@ -1078,6 +1277,44 @@ def build_parser() -> argparse.ArgumentParser:
                          ["ruru project remove joint-align"], [write, quiet])
     pp.add_argument("name")
 
+    p = command("review", cmd_review_list, "syntheses of related reading-list papers, triaged like an inbox",
+                ["ruru review", "ruru review add draft.md --by claude",
+                 "ruru review open 2026-10-18-robust-alignment", "ruru review keep 2026-10-18-robust-alignment"],
+                [read])
+    p.add_argument("-s", "--status", choices=REVIEW_STATUSES)
+    rsub = p.add_subparsers(dest="review_command", metavar="ACTION", parser_class=_Parser)
+
+    def review_command(name: str, func: Handler, help: str, examples: Sequence[str],
+                       parents: Sequence[argparse.ArgumentParser] = ()) -> argparse.ArgumentParser:
+        rp = rsub.add_parser(name, help=help, description=help, formatter_class=_Formatter,
+                             epilog=_examples(*examples), parents=[common, *parents])  # type: ignore[list-item]
+        rp.set_defaults(func=func)
+        return rp
+
+    rp = review_command("list", cmd_review_list, "list reviews, newest first (new ones marked ●)",
+                        ["ruru review list -s new", "ruru review list --json"], [read])
+    rp.add_argument("-s", "--status", choices=REVIEW_STATUSES)
+    rp = review_command("show", cmd_review_show, "print a review's Markdown",
+                        ["ruru review show 2026-10-18-robust-alignment", "ruru review show ID --json"], [read])
+    rp.add_argument("id")
+    rp = review_command(
+        "add", cmd_review_add,
+        "file a review (Markdown with front matter); every paper must be on the reading list",
+        ["ruru review add draft.md --by claude", "cat draft.md | ruru review add - --by claude",
+         "ruru review add draft.md --replace     (rewrite one that is still new)"],
+        [write, quiet])
+    rp.add_argument("file", metavar="FILE", help="the review (- for stdin); format in the ruru skill")
+    rp.add_argument("--by", default=os.environ.get("RURU_AGENT") or None, help="author (default: $RURU_AGENT)")
+    rp.add_argument("--replace", action="store_true", help="overwrite a review with the same id that is still new")
+    rp = review_command("open", cmd_review_open, "render a review as a web page and open it",
+                        ["ruru review open 2026-10-18-robust-alignment", "ruru review open ID --no-open"])
+    rp.add_argument("id")
+    rp.add_argument("--no-open", action="store_true", help="only write the page and print its path")
+    for name, func, what in (("keep", cmd_review_keep, "keep reviews (no longer new)"),
+                             ("discard", cmd_review_discard, "delete reviews (git history keeps them)")):
+        rp = review_command(name, func, what, [f"ruru review {name} 2026-10-18-robust-alignment"], [write, quiet])
+        rp.add_argument("ids", nargs="+", metavar="ID")
+
     p = command("cite", cmd_cite, "add papers to a project's .bib (inside ruru's managed block)",
                 ["ruru cite joint-align wood2026joint guillevic2021automated",
                  "ruru search 'retention time' -q | xargs ruru cite joint-align"],
@@ -1133,13 +1370,48 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("keys", nargs="*", metavar="KEY", help="default: every paper without an abstract")
     p.add_argument("-n", "--dry-run", action="store_true", help="show what would be filled without writing it")
 
-    p = command("pdf", cmd_pdf, "print, fetch (open access only) or open a paper's PDF",
-                ["ruru pdf guillevic2021automated", "ruru pdf guillevic2021automated --fetch --open"],
-                [write])
-    p.add_argument("key")
-    p.add_argument("--fetch", action="store_true", help="download the open-access PDF to paper.pdf")
-    p.add_argument("--force", action="store_true", help="with --fetch: download even if paper.pdf exists")
-    p.add_argument("--open", action="store_true", help="open it in the system viewer")
+    p = command("pdf", cmd_pdf, "a paper's PDF: show/fetch/open it, file downloaded ones, list the missing",
+                ["ruru pdf guillevic2021automated              (short for `ruru pdf show KEY`)",
+                 "ruru pdf missing --open                       reading-list papers without a PDF",
+                 "ruru pdf add                                  file ~/Downloads/KEY.pdf downloads"])
+    pdfsub = p.add_subparsers(dest="pdf_command", metavar="ACTION", parser_class=_Parser)
+
+    def pdf_command(name: str, func: Handler, help: str, examples: Sequence[str],
+                    parents: Sequence[argparse.ArgumentParser] = ()) -> argparse.ArgumentParser:
+        pp = pdfsub.add_parser(name, help=help, description=help, formatter_class=_Formatter,
+                               epilog=_examples(*examples), parents=[common, *parents])  # type: ignore[list-item]
+        pp.set_defaults(func=func)
+        return pp
+
+    pp = pdf_command("show", cmd_pdf, "print the PDF's path; fetch (open access only) or open it",
+                     ["ruru pdf show guillevic2021automated --fetch --open",
+                      "ruru pdf guillevic2021automated --browser     publisher page; KEY.pdf on the clipboard"],
+                     [write])
+    pp.add_argument("key")
+    pp.add_argument("--fetch", action="store_true", help="download the open-access PDF to paper.pdf")
+    pp.add_argument("--force", action="store_true", help="with --fetch: download even if paper.pdf exists")
+    pp.add_argument("--open", action="store_true", help="open it in the system viewer")
+    pp.add_argument("--browser", action="store_true",
+                    help="open the DOI page to download it yourself (KEY.pdf goes on the clipboard)")
+    pp = pdf_command("add", cmd_pdf_add, "move downloaded PDFs named KEY.pdf into the library",
+                     ["ruru pdf add                       every KEY.pdf in ~/Downloads (or `downloads` in config)",
+                      "ruru pdf add ~/Desktop/papers      a folder of KEY.pdf files",
+                      "ruru pdf add 1-s2.0-S0021-main.pdf --key icoshift2011"],
+                     [write, quiet])
+    pp.add_argument("paths", nargs="*", metavar="PATH", help="PDFs or folders (default: the downloads folder)")
+    pp.add_argument("--key", help="the paper a single, differently named file belongs to")
+    pp.add_argument("--force", action="store_true", help="replace a PDF the paper already has")
+    pp = pdf_command("missing", cmd_pdf_missing, "papers without a PDF, with the link to get each",
+                     ["ruru pdf missing                   the reading list",
+                      "ruru pdf missing -t robust-estimation",
+                      "ruru pdf missing key1 key2 --open  open their publisher pages",
+                      "ruru pdf missing --all --json"],
+                     [read])
+    pp.add_argument("keys", nargs="*", metavar="KEY", help="these papers (default: the reading list)")
+    pp.add_argument("-p", "--project", metavar="PROJECT", help="only this project ('none': in no project)")
+    pp.add_argument("-t", "--tag", action="append", metavar="TAG", help="must have this tag (repeatable)")
+    pp.add_argument("--all", action="store_true", help="the whole library, not just the reading list")
+    pp.add_argument("--open", action="store_true", help=f"open each link in the browser (at most {MAX_TABS})")
 
     command("tui", cmd_tui, "interactive UI (optional extra: ruru[tui])", ["ruru tui", "ruru -L ~/papers tui"])
     return parser
@@ -1147,6 +1419,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if len(argv) > 1 and argv[0] == "pdf" and argv[1] not in PDF_ACTIONS and argv[1] not in ("-h", "--help"):
+        argv.insert(1, "show")  # `ruru pdf KEY` is short for `ruru pdf show KEY`
     args = parser.parse_args(argv)
     func: Handler | None = getattr(args, "func", None)
     if func is None:  # bare `ruru`: the mascot and the help, on stderr (stdout stays data-only)

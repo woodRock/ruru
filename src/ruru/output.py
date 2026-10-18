@@ -9,7 +9,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any, TextIO
 
-from ruru.inbox import Item
+from ruru.inbox import Item, read_viewed
 from ruru.model import Paper
 
 _CODES = {"bold": "1", "dim": "2", "cyan": "36", "green": "32", "yellow": "33", "red": "31"}
@@ -58,11 +58,13 @@ def paper_line(p: Paper) -> str:
     return f"{key} {p.year or '----'}  {status} {p.title}  {tags}".rstrip()
 
 
-def item_json(item: Item, root: Path) -> dict[str, Any]:
+def item_json(item: Item, root: Path, viewed: set[str] | None = None) -> dict[str, Any]:
     out = {k: _iso(v) for k, v in item.front_matter().items()}
+    out.setdefault("tags", [])  # stable keys: the file leaves empty tags out
     if out.get("suggestion"):
         out["suggestion"] = {k: _iso(v) for k, v in out["suggestion"].items()}
     out["path"] = str(item.path.relative_to(root)) if item.path else None
+    out["viewed"] = item.id in (read_viewed(root) if viewed is None else viewed)
     return out
 
 

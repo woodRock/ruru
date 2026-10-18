@@ -17,6 +17,7 @@ import yaml
 from ruru.text import norm_title
 
 STATUSES = ("to-read", "later", "reading", "read")
+UNREAD = STATUSES[:-1]  # the TUI's reading list; `read` papers are its Library
 TYPES = ("article", "inproceedings", "preprint", "book", "thesis", "misc")
 ID_KINDS = ("doi", "arxiv", "openalex", "s2")
 FIELDS = (

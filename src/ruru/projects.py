@@ -19,6 +19,7 @@ from ruru import tomledit
 from ruru.bibtex import ENCODINGS, parse_bibtex, to_bibtex
 from ruru.errors import UsageError
 from ruru.model import same_paper
+from ruru.search import NO_PROJECT
 
 BEGIN = "% >>> ruru managed — do not edit inside this block (ruru cite / ruru check --fix)"
 END = "% <<< ruru managed"
@@ -45,6 +46,8 @@ class Project:
     def from_dict(cls, name: str, d: dict[str, Any]) -> Project:
         if not _NAME.match(name):
             raise UsageError(f"project name {name!r}: use letters, digits, '-' and '_'")
+        if name == NO_PROJECT:
+            raise UsageError(f"{NO_PROJECT!r} can't be a project name: `-p {NO_PROJECT}` means in no project")
         if not d.get("path") or not d.get("bib"):
             raise UsageError(f"project {name!r} needs path and bib")
         tex = d.get("tex") or []
