@@ -334,7 +334,6 @@ def test_list_sort_and_no_project(stocked, run, tmp_path):
     run("status", "maaten2008visualizing", "reading")
     keys = lambda *a: run("list", "-q", *a).out.split()
     everything = set(keys())
-    assert keys() == keys("--sort", "key", "-r")  # all added today: `added` is a date, ties go by key
     assert keys("--sort", "key") == sorted(everything, key=str.lower)
     assert keys("--sort", "key", "-r") == sorted(everything, key=str.lower, reverse=True)
     assert keys("--sort", "year") == ["wood2026joint", "nunez2025survey", "maaten2008visualizing",
@@ -343,9 +342,23 @@ def test_list_sort_and_no_project(stocked, run, tmp_path):
                                         "aardvark1999zebrafish"]
     assert keys("--sort", "title")[0] == "nunez2025survey"  # "A Survey…"
     assert run("list", "--sort", "colour").code == cli.USAGE
+    assert keys("-r") == keys()[::-1]
     run("project", "add", "demo", "--path", str(tmp_path), "--bib", "refs.bib")
     run("add", "--bib", str(tmp_path / "refs.bib"), "-p", "demo", "--no-enrich")  # labels SAMPLE_BIB's two
     assert set(keys("-p", "none")) == {"wood2026joint", "aardvark1999zebrafish"}
     assert set(keys("-p", "demo")) == everything - {"wood2026joint", "aardvark1999zebrafish"}
     r = run("project", "add", "none", "--path", str(tmp_path), "--bib", "x.bib")
     assert r.code == cli.USAGE and "in no project" in r.err
+
+
+def test_same_day_papers_list_by_commit_time(lib, run):
+    import os
+    import subprocess
+    for title, stamp in (("Zzz filed first", "@1760600000"), ("Aaa filed second", "@1760700000")):
+        run("add", "--title", title, "--author", "Ann Aardvark", "--year", "2020", "-q")
+        subprocess.run(["git", "-C", str(lib), "commit", "--amend", "--no-edit", "--quiet", "--date", stamp],
+                       check=True, env={**os.environ, "GIT_COMMITTER_DATE": stamp})
+    assert run("list", "-q").out.split() == ["aardvark2020aaa", "aardvark2020zzz"]  # not Z-A by key
+    assert run("list", "-q", "--sort", "year").out.split() == ["aardvark2020aaa", "aardvark2020zzz"]
+    run("add", "--title", "Mmm not committed", "--author", "Ann Aardvark", "--year", "2020", "-q", "--no-commit")
+    assert run("list", "-q").out.split()[0] == "aardvark2020mmm"

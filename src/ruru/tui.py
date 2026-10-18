@@ -49,7 +49,7 @@ from ruru.library import Library
 from ruru.model import STATUSES, UNREAD, Paper
 from ruru.reviews import SORTS as REVIEW_SORTS
 from ruru.reviews import Review, Reviews, created_label
-from ruru.search import SORTS, in_project, search, sort_papers
+from ruru.search import SORTS, Filed, filed_times, in_project, needs_filed, search, sort_papers
 
 POLL_SECONDS = 2.0
 VIEW_SECONDS = 1.0  # resting on an inbox item this long marks it viewed (no longer bold)
@@ -91,7 +91,8 @@ def parse_filter(text: str) -> tuple[dict[str, str], str]:
     return fields, " ".join(words)
 
 
-def filter_papers(papers: list[Paper], text: str, sort: str = SORTS[0]) -> list[Paper]:
+def filter_papers(papers: list[Paper], text: str, sort: str = SORTS[0],
+                  filed: Filed = lambda p: 0.0) -> list[Paper]:
     """Words rank by relevance unless a sort other than the default was chosen."""
     fields, words = parse_filter(text)
     papers = [p for p in papers
@@ -102,7 +103,7 @@ def filter_papers(papers: list[Paper], text: str, sort: str = SORTS[0]) -> list[
         papers = [p for _, p in search(papers, words)]
         if sort == SORTS[0]:
             return papers
-    return sort_papers(papers, sort)
+    return sort_papers(papers, sort, filed=filed)
 
 
 def filter_items(items: list[Item], text: str) -> list[Item]:
@@ -449,8 +450,10 @@ class RuruApp(App[None]):
             self.all_reviews = Reviews(self.lib.root).all(self.review_sort)
             self.reviews = filter_reviews(self.all_reviews, self.filters["reviews"])
             unread = [p for p in papers if p.status in UNREAD]
-            self.reading = filter_papers(unread, self.filters["reading"], self.sort)
-            self.papers = filter_papers([p for p in papers if p not in unread], self.filters["library"], self.sort)
+            filed = filed_times(self.lib.root) if needs_filed(self.sort) else lambda p: 0.0
+            self.reading = filter_papers(unread, self.filters["reading"], self.sort, filed)
+            self.papers = filter_papers([p for p in papers if p not in unread], self.filters["library"],
+                                        self.sort, filed)
         except RuruError as e:
             self.notify(str(e), severity="error")
             return

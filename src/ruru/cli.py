@@ -36,7 +36,7 @@ from ruru.resolve import Resolver, apply_metadata, changes, openalex, parse_iden
 from ruru.reviews import SORTS as REVIEW_SORTS
 from ruru.reviews import STATUSES as REVIEW_STATUSES
 from ruru.reviews import Review, Reviews
-from ruru.search import SORTS, in_project, search, sort_papers
+from ruru.search import SORTS, filed_times, in_project, needs_filed, search, sort_papers
 
 # The exit codes are re-exported: tests and scripts refer to cli.OK etc.
 __all__ = ["LOCKED", "NO_MATCH", "OK", "PARTIAL", "USAGE", "build_parser", "main"]
@@ -241,7 +241,8 @@ def cmd_list(args: argparse.Namespace) -> int:
         and (not args.status or p.status == args.status)
         and (not args.since or (p.added is not None and p.added >= args.since))
     ]
-    papers = sort_papers(papers, args.sort, reverse=args.reverse)
+    filed = filed_times(lib.root) if needs_filed(args.sort) else lambda p: 0.0
+    papers = sort_papers(papers, args.sort, reverse=args.reverse, filed=filed)
     _print_papers(lib, papers, args)
     if not papers:
         if not args.json:

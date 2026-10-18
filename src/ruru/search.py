@@ -9,20 +9,25 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from datetime import date
+from pathlib import Path
 from typing import Any
 
+from ruru import gitops
 from ruru.model import STATUSES, Paper
 from ruru.text import fold
 
 NO_PROJECT = "none"  # `-p none`, `p:none`: papers in no project (so no project may be called that)
 
-# name -> (sort key, newest/largest first?)
-_SORTS: dict[str, tuple[Callable[[Paper], Any], bool]] = {
-    "added": (lambda p: (p.added or date.min, p.key), True),
-    "key": (lambda p: p.key.lower(), False),
-    "year": (lambda p: (p.year or 0, p.added or date.min, p.key), True),
-    "status": (lambda p: (STATUSES.index(p.status) if p.status in STATUSES else len(STATUSES), p.key), False),
-    "title": (lambda p: (fold(p.title), p.key), False),
+Filed = Callable[[Paper], float]
+
+# name -> (sort key given `filed`, newest/largest first?)
+_SORTS: dict[str, tuple[Callable[[Paper, Filed], Any], bool]] = {
+    "added": (lambda p, filed: (p.added or date.min, filed(p), p.key), True),
+    "key": (lambda p, filed: p.key.lower(), False),
+    "year": (lambda p, filed: (p.year or 0, p.added or date.min, filed(p), p.key), True),
+    "status": (lambda p, filed: (STATUSES.index(p.status) if p.status in STATUSES else len(STATUSES), p.key),
+               False),
+    "title": (lambda p, filed: (fold(p.title), p.key), False),
 }
 SORTS = tuple(_SORTS)  # the first is the default
 
@@ -31,10 +36,23 @@ def in_project(p: Paper, name: str) -> bool:
     return not p.projects if name == NO_PROJECT else name in p.projects
 
 
-def sort_papers(papers: Iterable[Paper], by: str = "added", *, reverse: bool = False) -> list[Paper]:
-    """added: newest first; year: newest first; key, title: A-Z; status: to-read, later, reading, read."""
+def filed_times(root: Path) -> Filed:
+    """When each paper was filed: the commit time of its paper.md (one git call). `added` is only a
+    date, so this orders papers added on the same day; an uncommitted paper counts as newest."""
+    added = gitops.added_times(root, "papers")
+    return lambda p: float(added.get(f"papers/{p.key}/paper.md", float("inf")))
+
+
+def sort_papers(papers: Iterable[Paper], by: str = "added", *, reverse: bool = False,
+                filed: Filed = lambda p: 0.0) -> list[Paper]:
+    """added: newest first (`filed`, e.g. `filed_times`, orders a day); year: newest first; key, title:
+    A-Z; status: to-read, later, reading, read."""
     key, descending = _SORTS[by]
-    return sorted(papers, key=key, reverse=descending != reverse)
+    return sorted(papers, key=lambda p: key(p, filed), reverse=descending != reverse)
+
+
+def needs_filed(by: str) -> bool:
+    return by in ("added", "year")
 
 WEIGHTS = {"title": 5, "authors": 3, "tags": 3, "key": 3, "venue": 1, "abstract": 1, "notes": 1}
 

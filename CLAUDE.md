@@ -157,7 +157,8 @@ the user config is `~/.config/ruru/config.toml` on macOS too.
   README image. Change the art here only; everything else renders from it.
 - `wizard.py`: `ruru feeds wizard` (the only prompting command; refuses without a TTY). Injected
   `ask`/`say` for tests; every feed goes through `ops.add_feed`.
-- `search.py`: linear, accent-insensitive AND search with field weights; `SORTS`/`sort_papers` and
+- `search.py`: linear, accent-insensitive AND search with field weights; `SORTS`/`sort_papers` (`added`
+  is a date, so `filed_times` breaks same-day ties by paper.md's commit time) and
   `in_project` (`NO_PROJECT = "none"`, a reserved project name) shared by `ruru list` and the TUI.
 - `output.py`: colour (`style`), `paper_json` (the docs/json.md schema), `paper_line`.
 - `cli.py`: network work happens before `lib.transaction()` (never hold the lock across HTTP), and
