@@ -32,7 +32,10 @@ from ruru.text import display_name
 KINDS = ("arxiv", "openalex", "crossref", "rss")
 REQUIRED = {"arxiv": ("query",), "crossref": ("issn",), "rss": ("url",)}
 FIRST_FETCH_DAYS = 7  # how far back a feed's first fetch looks
-OVERLAP_DAYS = 1  # later fetches re-read a day, so nothing slips between runs (dedupe drops repeats)
+# Later fetches re-read this many days before the last one (dedupe drops repeats). arXiv and
+# OpenAlex filter on the publication date, but a record appears days (arXiv: announcement after
+# submission) to weeks (OpenAlex: indexing) later; Crossref filters on registration, RSS on nothing.
+OVERLAP_DAYS = {"arxiv": 7, "openalex": 30, "crossref": 1, "rss": 1}
 _NAME = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 
 
@@ -111,10 +114,14 @@ def load_state(root: Path) -> dict[str, dict[str, str]]:
 
 
 def since_for(feed: Feed, state: dict[str, dict[str, str]], today: date) -> date:
-    last = (state.get(feed.name) or {}).get("last_fetch")
+    """The overlap never reaches back before the feed's first window (`start`): papers published
+    before a feed was added are a backlog, not late arrivals."""
+    entry = state.get(feed.name) or {}
     try:
-        if last:
-            return date.fromisoformat(last) - timedelta(days=OVERLAP_DAYS)
+        if last := entry.get("last_fetch"):
+            last_date = date.fromisoformat(last)
+            start = date.fromisoformat(entry["start"]) if entry.get("start") else last_date - timedelta(days=1)
+            return max(last_date - timedelta(days=OVERLAP_DAYS[feed.kind]), start)
     except ValueError:
         pass  # a corrupt state file: treat the feed as new
     return today - timedelta(days=FIRST_FETCH_DAYS)

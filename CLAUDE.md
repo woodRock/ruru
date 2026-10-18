@@ -93,7 +93,9 @@ the user config is `~/.config/ruru/config.toml` on macOS too.
   library + inbox + seen).
 - `feeds.py`: `Feed` (validated `[[feeds]]` entry), kinds arxiv | openalex | crossref | rss,
   `fetch(client, feed, since) -> [Candidate]` (RSS entries with a DOI come back as stubs with
-  `needs_resolve`), state in `.ruru/feeds.json` (`since_for`: first fetch 7 days, then last − 1 day).
+  `needs_resolve`), state in `.ruru/feeds.json` (`since_for`: first fetch 7 days, then last − `OVERLAP_DAYS[kind]`:
+  arXiv 7, OpenAlex 30, since both filter on publication date and records appear late; never before
+  the feed's `start`, its first window, so the overlap doesn't pull in a backlog).
 - `tomledit.py`: append/remove one table in ruru.toml, keeping Jesse's comments.
 - `ops.py`: operations shared by CLI and TUI: `fetch` (dedupe, resolve new RSS DOIs, one commit,
   state only for feeds that succeeded), `triage` (keep/later/skip + seen.jsonl), `suggest`,

@@ -73,11 +73,14 @@ def fetch(lib: Library, client: Client, feeds: Sequence[Feed], *, since: date | 
     resolver = Resolver(client)
     results: list[FeedResult] = []
     items: list[Item] = []
+    starts: dict[str, str] = {}
     for feed in feeds:
         result = FeedResult(feed.name)
         results.append(result)
+        window = feedmod.since_for(feed, state, today)
+        starts[feed.name] = (state.get(feed.name) or {}).get("start") or (since or window).isoformat()
         try:
-            candidates = feedmod.fetch(client, feed, since or feedmod.since_for(feed, state, today))
+            candidates = feedmod.fetch(client, feed, since or window)
         except RuruError as e:
             result.error = str(e)
             continue
@@ -105,7 +108,7 @@ def fetch(lib: Library, client: Client, feeds: Sequence[Feed], *, since: date | 
                     tx.write(item.path, dumps(item))
     for r in results:
         if not r.error:
-            state[r.name] = {"last_fetch": today.isoformat()}
+            state[r.name] = {"last_fetch": today.isoformat(), "start": starts[r.name]}
     atomic_write(feedmod.state_path(lib.root), json.dumps(state, indent=2, sort_keys=True) + "\n")
     return results, items
 

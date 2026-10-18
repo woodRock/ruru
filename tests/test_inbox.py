@@ -162,6 +162,22 @@ def test_since_for():
     assert feeds.since_for(feed, {"a": {"last_fetch": "bad"}}, today) == date(2026, 10, 10)
 
 
+def test_since_for_allows_for_late_records():
+    state = {"a": {"last_fetch": "2026-10-15", "start": "2026-09-01"}}
+    today = date(2026, 10, 17)
+    assert feeds.since_for(feeds.Feed("a", "arxiv", query="q"), state, today) == date(2026, 10, 8)
+    assert feeds.since_for(feeds.Feed("a", "openalex", search="s"), state, today) == date(2026, 9, 15)
+    assert feeds.since_for(feeds.Feed("a", "crossref", issn="i"), state, today) == date(2026, 10, 14)
+
+
+def test_since_for_stays_within_the_first_window():
+    feed = feeds.Feed("a", "openalex", search="s")
+    state = {"a": {"last_fetch": "2026-10-15", "start": "2026-10-01"}}
+    assert feeds.since_for(feed, state, date(2026, 10, 17)) == date(2026, 10, 1)
+    state["a"]["last_fetch"] = "2026-12-01"
+    assert feeds.since_for(feed, state, date(2026, 12, 2)) == date(2026, 11, 1)
+
+
 def test_load_state_tolerates_garbage(tmp_path):
     assert feeds.load_state(tmp_path) == {}
     feeds.state_path(tmp_path).parent.mkdir()

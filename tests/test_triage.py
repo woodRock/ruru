@@ -69,7 +69,7 @@ def test_fetch_fills_inbox_and_commits(feeds_lib, run, net, monkeypatch):
     files = sorted(p.name for p in (feeds_lib / "inbox" / "2026-10-17").iterdir())
     assert len(files) == 9 and all(f.endswith(".md") for f in files)
     state = json.loads((feeds_lib / ".ruru" / "feeds.json").read_text())
-    assert state["jat"] == {"last_fetch": "2026-10-17"}
+    assert state["jat"] == {"last_fetch": "2026-10-17", "start": SINCE}
     # RSS entries with a DOI were resolved through Crossref.
     item = json.loads(run("show", "doi-10.1002-jat.70464", "--json").out)
     assert item["source"] == "feed:jat" and item["publisher"] == "Wiley"  # EarlyView: no volume yet
