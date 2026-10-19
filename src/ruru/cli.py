@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from ruru import __version__, feeds, http, logo, model, ops
+from ruru import claims as claimsmod
 from ruru import projects as projmod
 from ruru.bibtex import ENCODINGS, parse_bibtex, to_bibtex
 from ruru.config import config_path, resolve_library, secret, write_user_config
@@ -490,13 +491,29 @@ def cmd_pdf_add(args: argparse.Namespace) -> int:
 
 def cmd_pdf_missing(args: argparse.Namespace) -> int:
     lib = _open(args)
-    if args.keys:
+    if args.cited and args.keys:
+        raise UsageError("give keys or --cited PROJECT, not both")
+    if args.cited:
+        cited = ops.cited_keys(lib, args.cited)
+        unknown = [k for k in cited if not lib.exists(k)]
+        if unknown:
+            warn(f"cited but not in the library: {', '.join(unknown)} (`ruru check {args.cited}`)")
+        papers = [lib.get(k) for k in cited if k not in unknown]
+    elif args.keys:
         papers = [lib.get(k) for k in args.keys]
     else:
         papers = [p for p in lib.papers() if (args.all or p.status in model.UNREAD)
                   and (not args.project or in_project(p, args.project))
                   and all(_tag(t) in p.tags for t in args.tag or [])]
     missing = [p for p in sort_papers(papers, "key") if not lib.has_pdf(p.key)]
+    if args.fetch and missing:
+        with client_for(lib) as client:
+            for p in missing:
+                try:
+                    ops.fetch_pdf(lib, client, p.key)
+                except RuruError as e:
+                    print(f"{p.key}: {e}", file=sys.stderr)
+        missing = [p for p in missing if not lib.has_pdf(p.key)]
     if args.json:
         emit_json([{"key": p.key, "title": p.title, "link": ops.paper_link(p), "save_as": f"{p.key}.pdf"}
                    for p in missing])
@@ -952,6 +969,95 @@ def cmd_check(args: argparse.Namespace) -> int:
     return NO_MATCH if report.issues else OK
 
 
+VERDICT_MARK = {"supported": ("✓", "green"), "partial": ("~", "yellow"), "unsupported": ("✗", "red"),
+                "not-found": ("?", "yellow"), "background": ("·", "dim")}
+
+
+def cmd_claims(args: argparse.Namespace) -> int:
+    lib = _open(args)
+    project = ops.get_project(lib, args.project)
+    found = ops.claims(lib, args.project)
+    verdicts = claimsmod.load(lib.root, args.project)
+    current = {(c.id, k) for c in found for k in c.keys}
+    stale = [v for k, v in sorted(verdicts.items()) if k not in current]
+    selected = []
+    for c in found:
+        given = {v.verdict for k in c.keys if (v := verdicts.get((c.id, k)))}
+        checked = sum((c.id, k) in verdicts for k in c.keys)
+        if ((args.key and not set(args.key) & set(c.keys)) or (args.unchecked and checked == len(c.keys))
+                or (args.verdict and not set(args.verdict) & given)):
+            continue
+        selected.append(c)
+
+    def where(c: claimsmod.Claim) -> str:
+        base = next((t.parent for t in project.tex_paths if c.file.is_relative_to(t.parent)), None)
+        return str(c.file.relative_to(base) if base else c.file)
+
+    def has_pdf(k: str) -> bool:
+        return lib.exists(k) and lib.has_pdf(k)
+
+    if args.json:
+        rows = [{"id": c.id, "file": where(c), "line": c.line, "keys": c.keys, "text": c.text,
+                 "checks": [{"key": k, "in_library": lib.exists(k), "has_pdf": has_pdf(k),
+                             "verdict": v.to_json() if (v := verdicts.get((c.id, k))) else None}
+                            for k in c.keys]}
+                for c in selected]
+        emit_json({"project": args.project, "claims": rows, "stale": [v.to_json() for v in stale]})
+    elif args.quiet:
+        for c in selected:
+            print(c.id)
+    else:
+        for c in selected:
+            marks = []
+            for k in c.keys:
+                if v := verdicts.get((c.id, k)):
+                    sign, colour = VERDICT_MARK[v.verdict]
+                    marks.append(style(f"{sign} {k}", colour))
+                else:
+                    why = "" if has_pdf(k) else (" (no PDF)" if lib.exists(k) else " (not in library)")
+                    marks.append(f"  {k}{style(why, 'dim')}")
+            print(f"{style(c.id, 'bold')} {where(c)}:{c.line}  {'  '.join(marks)}")
+            print(f"    {c.text}")
+        if stale:
+            print(f"{len(stale)} verdict(s) on sentences no longer in the tex: "
+                  f"`ruru claims {args.project} --json` lists them under stale", file=sys.stderr)
+    if not selected:
+        if not args.json:
+            print("no claims match", file=sys.stderr)
+        return NO_MATCH
+    return OK
+
+
+def cmd_verdict(args: argparse.Namespace) -> int:
+    lib = _open(args)
+    if args.drop:
+        if not args.claim or args.verdict:
+            raise UsageError("usage: ruru verdict PROJECT CLAIM [KEY] --drop")
+        gone = ops.drop_verdicts(lib, args.project, args.claim, [args.key] if args.key else [])
+        for v in gone:
+            print(v.claim if args.quiet else f"dropped {v.claim} {v.key} ({v.verdict})")
+        return OK
+    if args.file:
+        if args.claim:
+            raise UsageError("give CLAIM KEY VERDICT or -F FILE, not both")
+        text = sys.stdin.read() if args.file == "-" else Path(args.file).read_text(encoding="utf-8")
+        try:
+            data = json.loads(text) if text.lstrip().startswith("[") else [
+                json.loads(line) for line in text.splitlines() if line.strip()]
+        except json.JSONDecodeError as e:
+            raise UsageError(f"{args.file}: not JSON or JSON lines: {e}") from None
+        records = list(data)
+    else:
+        if not (args.claim and args.key and args.verdict):
+            raise UsageError("usage: ruru verdict PROJECT CLAIM KEY VERDICT [--quote …] (or -F FILE)")
+        records = [{"claim": args.claim, "key": args.key, "verdict": args.verdict, "from": args.source,
+                    "page": args.page, "quote": args.quote, "note": args.note}]
+    made = ops.record_verdicts(lib, args.project, records, by=args.by)
+    for v in made:
+        print(v.claim if args.quiet else f"{v.claim} {v.key}: {v.verdict}")
+    return OK
+
+
 def cmd_export(args: argparse.Namespace) -> int:
     from ruru.export import export_bib, export_document
 
@@ -1339,6 +1445,41 @@ def build_parser() -> argparse.ArgumentParser:
                    help="cite missing keys the library has; regenerate stale entries")
     p.add_argument("--prune", action="store_true", help="drop managed entries that nothing cites")
 
+    p = command("claims", cmd_claims,
+                "the sentences a project's .tex cites papers in, with any verdicts on them",
+                ["ruru claims joint-align", "ruru claims joint-align --unchecked --json",
+                 "ruru claims joint-align -k huber", "ruru claims joint-align --verdict unsupported partial"],
+                [read])
+    p.add_argument("project")
+    p.add_argument("-k", "--key", action="append", metavar="KEY",
+                   help="only claims citing this key (repeatable)")
+    p.add_argument("--unchecked", action="store_true",
+                   help="only claims with a cited key not yet given a verdict")
+    p.add_argument("--verdict", nargs="+", choices=claimsmod.VERDICTS,
+                   help="only claims with one of these verdicts")
+
+    p = command("verdict", cmd_verdict,
+                "record whether a cited paper supports a claim (see `ruru claims`); one commit",
+                ["ruru verdict joint-align 3fa9c2e1b0 huber supported -p 75 --quote \"…\" --by claude",
+                 "ruru verdict joint-align 3fa9c2e1b0 cow partial --quote \"…\" --note \"one wavelength only\"",
+                 "ruru verdict joint-align 3fa9c2e1b0 kovats background --from other",
+                 "ruru verdict joint-align -F verdicts.jsonl --by claude",
+                 "    (JSON lines: claim, key, verdict, and optionally from, page, quote, note)",
+                 "ruru verdict joint-align 3fa9c2e1b0 huber --drop"],
+                [write, quiet])
+    p.add_argument("project")
+    p.add_argument("claim", nargs="?", metavar="CLAIM", help="a claim id from `ruru claims`")
+    p.add_argument("key", nargs="?", metavar="KEY")
+    p.add_argument("verdict", nargs="?", metavar="VERDICT", help=" | ".join(claimsmod.VERDICTS))
+    p.add_argument("-p", "--page", help="where in the paper (the PDF's printed page number)")
+    p.add_argument("--quote", help="the paper's own words (needed for supported and partial)")
+    p.add_argument("--note", help="what the paper does say (needed for partial and unsupported)")
+    p.add_argument("--from", dest="source", choices=claimsmod.SOURCES, default="pdf",
+                   help="what the verdict rests on (default: pdf, which the paper must have)")
+    p.add_argument("-F", "--file", metavar="FILE", help="many verdicts as JSON lines or an array (- for stdin)")
+    p.add_argument("--by", default=os.environ.get("RURU_AGENT") or None, help="who judged (default: $RURU_AGENT)")
+    p.add_argument("--drop", action="store_true", help="forget the verdicts on CLAIM (KEY's only, if given)")
+
     p = command("export", cmd_export, "export the library: bib (a selection) or json (everything)",
                 ["ruru export json -o ~/papers/exports/library.json",
                  "ruru export bib -p joint-align > joint-align.bib",
@@ -1412,12 +1553,15 @@ def build_parser() -> argparse.ArgumentParser:
                      ["ruru pdf missing                   the reading list",
                       "ruru pdf missing -t robust-estimation",
                       "ruru pdf missing key1 key2 --open  open their publisher pages",
+                      "ruru pdf missing --cited joint-align --fetch --open",
                       "ruru pdf missing --all --json"],
-                     [read])
+                     [write, read])
     pp.add_argument("keys", nargs="*", metavar="KEY", help="these papers (default: the reading list)")
     pp.add_argument("-p", "--project", metavar="PROJECT", help="only this project ('none': in no project)")
     pp.add_argument("-t", "--tag", action="append", metavar="TAG", help="must have this tag (repeatable)")
     pp.add_argument("--all", action="store_true", help="the whole library, not just the reading list")
+    pp.add_argument("--cited", metavar="PROJECT", help="the papers PROJECT's .tex cites (any status)")
+    pp.add_argument("--fetch", action="store_true", help="first download the open-access ones")
     pp.add_argument("--open", action="store_true", help=f"open each link in the browser (at most {MAX_TABS})")
 
     command("tui", cmd_tui, "interactive UI (optional extra: ruru[tui])", ["ruru tui", "ruru -L ~/papers tui"])

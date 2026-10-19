@@ -195,6 +195,25 @@ missing from the bib (and whether ruru has them), managed entries never cited, p
 project but never cited, entries out of date with the library, and the same paper under two keys.
 `ruru check FILE.tex` works without a project, using the tex file's `\bibliography`.
 
+### Checking what citations claim
+
+`check` makes sure every key resolves; `claims` and `verdict` record whether each cited paper
+actually says what the sentence citing it claims. ruru lists the sentences and keeps the verdicts;
+the reading is done by you or an agent (see the skill), and the .tex is never edited.
+
+```bash
+ruru claims joint-align                         # every citing sentence, with an id and file:line
+ruru pdf missing --cited joint-align --fetch --open   # download open access, open the rest's DOI pages
+ruru verdict joint-align 3fa9c2e1b0 huber supported -p 75 --quote "…"
+ruru claims joint-align --verdict unsupported partial
+```
+
+A verdict is `supported` (needs a verbatim `--quote`), `partial` (a quote and a `--note`),
+`unsupported` (a note), `not-found` or `background` (a general pointer, nothing to check), and
+says what it rests on: `--from pdf` (default; the paper must have one), `abstract` or `other`.
+Verdicts live in `claims/<project>.json`, keyed by a hash of the sentence: reword it and the old
+verdict shows as stale.
+
 ## Adding papers and keeping them current
 
 ```bash
@@ -270,7 +289,7 @@ Code permission rule. In `~/.claude/settings.json` (or a project's `.claude/sett
       "Bash(ruru fetch:*)", "Bash(ruru suggest:*)", "Bash(ruru note:*)", "Bash(ruru tag:*)",
       "Bash(ruru skip:*)", "Bash(ruru unskip:*)", "Bash(ruru seen:*)",
       "Bash(ruru review list:*)", "Bash(ruru review show:*)", "Bash(ruru review add:*)",
-      "Bash(ruru pdf missing:*)", "Bash(ruru pdf add:*)"
+      "Bash(ruru pdf missing:*)", "Bash(ruru pdf add:*)", "Bash(ruru claims:*)", "Bash(ruru verdict:*)"
     ],
     "deny": [
       "Bash(ruru keep:*)", "Bash(ruru later:*)", "Bash(ruru cite:*)", "Bash(ruru rm:*)", "Bash(ruru unkeep:*)",

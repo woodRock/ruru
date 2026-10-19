@@ -142,6 +142,13 @@ the user config is `~/.config/ruru/config.toml` on macOS too.
   `%PDF` check; `cli.downloads_dir()` (`downloads` in the user config, default ~/Downloads).
   `cli.browse_for_pdf` opens `ops.paper_link` and puts `KEY.pdf` on the clipboard; conftest
   replaces `webbrowser.open` and `cli.copy_to_clipboard` (`browsed`, `clipboard` fixtures).
+- `claims.py` + `ops.claims`/`record_verdicts`/`drop_verdicts` (`ruru claims`, `ruru verdict`): the
+  .tex's citing sentences (`extract`: body only, comments stripped, `\nocite` ignored; split at
+  sentence ends, blank lines, headings, `\item`, environments, not after `et al.`/`e.g.`/initials),
+  id = hash of the text with cites as `[@a; @b]`. Verdicts per (claim, key) in
+  `claims/<project>.json` (`VERDICTS`; `make` enforces quote/note and `--from pdf` needing a PDF);
+  verdicts whose claim is gone are `stale`. `ops.cited_keys` (the claims' keys) backs
+  `ruru pdf missing --cited`; `--fetch` tries open access first. Agents may record verdicts.
 - `ops.rekey`: the only way a key changes; moves the directory (and the git-ignored PDF), commits,
   and reports the projects whose .tex/.bib still use the old key.
 - `skills/ruru/SKILL.md`: the agent-facing workflows and rules. `tests/test_skill_docs.py` checks

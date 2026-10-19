@@ -14,7 +14,8 @@ with examples. This skill is about workflow and judgement.
 
 - **Read freely; write only through** `ruru note KEY --agent`, `ruru tag`, `ruru suggest`,
   `ruru fetch`, `ruru skip`/`ruru unskip` for inbox items (see "Weekly triage"), `ruru review add`
-  (see "Reviews") and `ruru pdf add` (filing PDFs Jesse downloaded).
+  (see "Reviews"), `ruru verdict` (see "Checking citations") and `ruru pdf add` (filing PDFs Jesse
+  downloaded).
 - **Never add to the library or a paper: never run `ruru keep`, `ruru later` or `ruru cite`**, and
   never `ruru check --fix`/`--prune` (they cite). `later` counts: it puts the paper in the library.
   Those are Jesse's decisions; recommend them with `ruru suggest`, or tell him the exact command to
@@ -144,6 +145,38 @@ discards it. `ruru review add` refuses a paper that isn't on the reading list or
 3. After editing the `.tex`, run `ruru check PROJECT --json` and report the issues: keys missing
    from the bib (`in_library: true` means `ruru check PROJECT --fix` would add them; that's Jesse's
    command to run), unused or stale entries, duplicates.
+
+## Checking citations
+
+Does each cited paper say what the sentence citing it claims? You read; ruru lists the claims and
+keeps the verdicts (`claims/<project>.json` in the library, one commit per `ruru verdict`).
+
+1. `ruru claims PROJECT --unchecked --json`: every sentence of the .tex that cites something, with a
+   stable `id`, `file`:`line`, the `text` (cites written `[@key]`) and, per key, `in_library`,
+   `has_pdf` and any `verdict`. `-k KEY` narrows it to one paper.
+2. **PDFs first.** `ruru pdf missing --cited PROJECT --json` lists the cited papers without one.
+   Don't download anything yourself: give Jesse one command to run,
+   `ruru pdf missing --cited PROJECT --fetch --open` (it downloads the open-access ones, then opens
+   the publisher page of each of the rest, at most 10 at a time), saving each as `KEY.pdf` in
+   Downloads; then `ruru pdf add`. Keys `in_library: false` need `ruru add` first (Jesse's call).
+3. **Read each PDF once** (`ruru pdf KEY` prints the path) and judge every claim citing it
+   (`ruru claims PROJECT -k KEY --json`). Judge what the sentence attributes to that paper, not the
+   rest of the sentence (often Jesse's own result).
+4. **Record** with `ruru verdict PROJECT CLAIM KEY VERDICT --by claude`, or many at once as JSON
+   lines with `-F file.jsonl` (`claim`, `key`, `verdict`, `from`, `page`, `quote`, `note`):
+   - `supported`: `--quote` the paper's own words, verbatim, with `-p PAGE`;
+   - `partial`: the quote plus `--note` on what is overstated or narrower;
+   - `unsupported`: `--note` saying what the paper does say;
+   - `not-found`: you read it and couldn't find the passage either way;
+   - `background`: a general pointer ("see [x]", software, a dataset), nothing specific to check.
+
+   `--from pdf` (the default) needs the PDF. Without one, either wait for Jesse, or say what the
+   verdict rests on with `--from abstract` (abstract only) or `--from other` (a README, a web page);
+   never `supported` from memory.
+5. **Never edit the .tex.** Report to Jesse: the `unsupported` and `partial` claims with file:line,
+   quote and note first, then `not-found`, then what is still unchecked and why (no PDF, not in the
+   library). Rewording a sentence gives it a new id; old verdicts then show up as `stale` in
+   `ruru claims PROJECT --json`, and `ruru verdict PROJECT CLAIM --drop` forgets one.
 
 ## Other things you may be asked
 

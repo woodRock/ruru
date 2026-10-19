@@ -16,7 +16,9 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
+from typing import Any
 
+from ruru import claims as claimsmod
 from ruru import feeds as feedmod
 from ruru import gitops, model
 from ruru import projects as projmod
@@ -639,3 +641,64 @@ def fetch_pdf(lib: Library, client: Client, key: str, *, force: bool = False) ->
     with library_lock(lib.root):
         atomic_write(path, response.content)
     return path
+
+
+# --- cited claims --------------------------------------------------------------------------------
+
+def _tex_scan(project: Project) -> projmod.TexScan:
+    if not project.tex:
+        raise UsageError(f"project {project.name!r} lists no tex files; re-add it with --tex")
+    scan = scan_tex(project.tex_paths)
+    for f in scan.missing_files:
+        print(f"ruru: warning: tex file not found: {f}", file=sys.stderr)
+    return scan
+
+
+def cited_keys(lib: Library, name: str) -> list[str]:
+    """The keys the project's claims cite, in order of first citation (not \\nocite-only ones)."""
+    return list(dict.fromkeys(k for c in claims(lib, name) for k in c.keys))
+
+
+def claims(lib: Library, name: str) -> list[claimsmod.Claim]:
+    """The project's citing sentences, file by file (main files first, then what they \\input)."""
+    return [c for f in _tex_scan(get_project(lib, name)).files for c in claimsmod.extract(f)]
+
+
+def record_verdicts(lib: Library, name: str, records: Sequence[dict[str, Any]], *,
+                    by: str | None = None) -> list[claimsmod.Verdict]:
+    """Record verdicts on claims the .tex makes now, one commit. Each record: `claim`, `key`,
+    `verdict`, and optionally `from` (pdf, the default; abstract; other), `page`, `quote`, `note`.
+    Every record is checked before anything is written."""
+    if not records:
+        raise UsageError("no verdicts given")
+    current = {c.id: c for c in claims(lib, name)}
+    made = []
+    for r in records:
+        claim = current.get(str(r.get("claim", "")))
+        if claim is None:
+            raise UsageError(f"no claim {r.get('claim')!r} in {name}'s tex: `ruru claims {name}` lists them")
+        key = str(r.get("key", ""))
+        made.append(claimsmod.make(
+            claim, key, str(r.get("verdict", "")), source=str(r.get("from") or "pdf"), page=r.get("page"),
+            quote=r.get("quote"), note=r.get("note"), by=r.get("by") or by,
+            has_pdf=lib.exists(key) and lib.has_pdf(key)))
+    verdicts = claimsmod.load(lib.root, name)
+    verdicts.update({(v.claim, v.key): v for v in made})
+    summary = _summary([f"{v.key}:{v.verdict}" for v in made])
+    with lib.transaction(f"ruru: verdict {name} {summary}" + (f" ({by})" if by else "")) as tx:
+        tx.write(claimsmod.path_for(lib.root, name), claimsmod.dumps(verdicts))
+    return made
+
+
+def drop_verdicts(lib: Library, name: str, claim: str, keys: Sequence[str] = ()) -> list[claimsmod.Verdict]:
+    """Forget the verdicts on one claim (all its keys, or `keys`), current or stale."""
+    get_project(lib, name)
+    verdicts = claimsmod.load(lib.root, name)
+    gone = [v for (c, k), v in verdicts.items() if c == claim and (not keys or k in keys)]
+    if not gone:
+        raise UsageError(f"no verdicts on claim {claim!r}" + (f" for {', '.join(keys)}" if keys else ""))
+    for v in gone:
+        del verdicts[(v.claim, v.key)]
+    with lib.transaction(f"ruru: verdict {name} drop {claim}") as tx:
+        tx.write(claimsmod.path_for(lib.root, name), claimsmod.dumps(verdicts))
+    return gone

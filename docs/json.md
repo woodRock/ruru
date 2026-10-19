@@ -67,7 +67,7 @@ Every front matter field of `paper.md`, in this order, then two derived fields.
 
 | `ruru review --json` (and `review list`) | array of review objects: `new` ones first, then by `--sort` (`created`, newest first, by default; `title`; `papers`, most first); `[]` (exit 2) if none |
 | `ruru review show ID --json` | one review object, with `body` (the Markdown) |
-| `ruru pdf missing --json` | array of `{"key", "title", "link" (DOI or URL \| null), "save_as": "KEY.pdf"}`; `[]` (exit 2) when nothing is missing |
+| `ruru pdf missing --json` | array of `{"key", "title", "link" (DOI or URL \| null), "save_as": "KEY.pdf"}`; `[]` (exit 2) when nothing is missing (`--cited PROJECT`: the papers its claims cite; `--fetch` first downloads open-access ones) |
 
 ## Review object
 
@@ -105,6 +105,30 @@ Every front matter field of `paper.md`, in this order, then two derived fields.
   "fixed": {"cited": [], "regenerated": [], "pruned": []}   // only with --fix / --prune; {} otherwise
 }
 ```
+
+| `ruru claims PROJECT --json` | the claims document below; exit 2 if no claim matches the filters |
+
+## Claims document
+
+```json
+{
+  "project": "joint-align",
+  "claims": [{
+    "id": "04f06f26cd",                  // hash of the text: rewording gives a new id
+    "file": "main.tex",                   // relative to the main .tex's directory
+    "line": 150,                          // of the first cite in the sentence
+    "keys": ["huber"],
+    "text": "The first three rounds use Huber weights [@huber] with threshold $1.345\\hat\\sigma$.",
+    "checks": [{"key": "huber", "in_library": true, "has_pdf": true,
+                "verdict": null}]         // or a verdict object
+  }],
+  "stale": [ … ]                          // verdict objects whose sentence is no longer in the tex
+}
+```
+
+A verdict object: `claim`, `key`, `verdict` (`supported` \| `partial` \| `unsupported` \|
+`not-found` \| `background`), `source` (`pdf` \| `abstract` \| `other`), `page`, `quote`, `note`
+(string \| null), `by` (string \| null), `date`, and `text` (the claim as it read when judged).
 
 | `ruru seen --json` | array of triage records from seen.jsonl, newest first: `id`, `decision` (`keep` \| `skip` \| `later` \| `remove`: `ruru rm`, keyed by the paper's key), `date`, `key` (string \| null), `ids`, `title`, `year`, and `by` and `reason` when an agent decided |
 | `ruru doctor --json` | array of `{"name", "status": "ok" \| "warn" \| "fail", "detail"}`; exit 3 if any failed |
