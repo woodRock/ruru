@@ -60,7 +60,7 @@ Every front matter field of `paper.md`, in this order, then two derived fields.
 | `tags` | [string] | empty except on a paper moved back with `ruru unkeep` |
 | `source` | string | `feed:<name>` |
 | `published` | date \| null | as the feed reports it |
-| `fetched` | date | |
+| `fetched` | datetime \| date | when it was fetched, `2026-10-19T18:34:59`; items fetched before 2026-10-19 evening have a date only. `ruru inbox` lists the newest fetch first |
 | `suggestion` | object \| null | `{"action": "keep" \| "skip" \| "later", "reason": string, "by": string, "date": date}` |
 | `path` | string | relative to the library root |
 | `viewed` | bool | Jesse has looked at it in `ruru tui` (only the TUI marks items; the CLI never does) |

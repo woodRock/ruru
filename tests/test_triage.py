@@ -2,7 +2,7 @@ import json
 import subprocess
 import sys
 import tomllib
-from datetime import date
+from datetime import datetime
 
 import pytest
 
@@ -59,7 +59,7 @@ def test_fetch_requires_feeds(lib, run):
 
 
 def test_fetch_fills_inbox_and_commits(feeds_lib, run, net, monkeypatch):
-    monkeypatch.setattr(model, "today", lambda: date(2026, 10, 17))
+    monkeypatch.setattr(model, "now", lambda: datetime(2026, 10, 17, 9, 30))
     r = run("fetch", "--since", SINCE)
     assert r.code == 0
     assert "anal-chem                5 new, 0 already seen" in r.out and "9 new items" in r.out
@@ -72,6 +72,7 @@ def test_fetch_fills_inbox_and_commits(feeds_lib, run, net, monkeypatch):
     assert state["jat"] == {"last_fetch": "2026-10-17", "start": SINCE}
     # RSS entries with a DOI were resolved through Crossref.
     item = json.loads(run("show", "doi-10.1002-jat.70464", "--json").out)
+    assert item["fetched"] == "2026-10-17T09:30:00"
     assert item["source"] == "feed:jat" and item["publisher"] == "Wiley"  # EarlyView: no volume yet
     # A second fetch finds nothing new: everything is already in the inbox.
     r = run("fetch", "--json")

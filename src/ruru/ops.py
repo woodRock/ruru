@@ -64,9 +64,10 @@ def _summary(names: list[str], limit: int = 5) -> str:
 
 
 def fetch(lib: Library, client: Client, feeds: Sequence[Feed], *, since: date | None = None,
-          today: date | None = None) -> tuple[list[FeedResult], list[Item]]:
+          now: datetime | None = None) -> tuple[list[FeedResult], list[Item]]:
     """Pull every feed; new items (not in the library, the inbox or seen.jsonl) go to the inbox."""
-    today = today or model.today()
+    now = now or model.now()
+    today = now.date()
     inbox = Inbox(lib.root)
     state = feedmod.load_state(lib.root)
     dedupe = Deduper.everything(list(lib.papers()), inbox.items(), read_seen(lib.root))
@@ -97,7 +98,7 @@ def fetch(lib: Library, client: Client, feeds: Sequence[Feed], *, since: date | 
                           file=sys.stderr)
             paper.source = f"feed:{feed.name}"
             dedupe.add_paper(paper)
-            items.append(Item(item_id(paper, c.link), paper, fetched=today, published=c.published))
+            items.append(Item(item_id(paper, c.link), paper, fetched=now, published=c.published))
             result.new += 1
     if items:
         counts = ", ".join(f"{r.name} {r.new}" for r in results if r.new)
@@ -207,7 +208,7 @@ def unkeep(lib: Library, keys: Sequence[str]) -> list[Item]:
         old = gitops.deleted_file(lib.root, f"inbox/*/{iid}.md") if gitops.is_repo(lib.root) else None
         published = load_item(old[1]).published if old else None  # from when it was first fetched
         p.body, p.status = "", "to-read"
-        items.append(Item(iid, p, fetched=model.today(), published=published))
+        items.append(Item(iid, p, fetched=model.now(), published=published))
     removed = {p.key for p in papers}
     with lib.transaction(f"ruru: unkeep {_summary(sorted(removed))}") as tx:
         for p, item in zip(papers, items):

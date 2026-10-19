@@ -1,5 +1,5 @@
 import tomllib
-from datetime import date
+from datetime import date, datetime
 
 import pytest
 
@@ -68,6 +68,29 @@ def test_inbox_listing_and_get(tmp_path, capsys):
     assert [i.id for i in box.items()] == ["b", "a"]
     assert "skipping inbox/2026-10-02/broken.md" in capsys.readouterr().err
     assert box.get("a").paper.title == "A" and box.exists("b")
+
+
+def test_inbox_newest_fetch_first(tmp_path, monkeypatch):
+    """A later fetch on the same day comes first, whatever the papers' publication dates;
+    date-only items (before fetch times were kept) use the time of the commit that added them."""
+    box = inbox.Inbox(tmp_path)
+    items = [
+        Item("morning", _paper("M"), fetched=datetime(2026, 10, 19, 11, 50), published=date(2026, 10, 18)),
+        Item("evening", _paper("E"), fetched=datetime(2026, 10, 19, 18, 34), published=date(2026, 10, 16)),
+        Item("legacy-noon", _paper("N"), fetched=date(2026, 10, 19), published=date(2026, 10, 18)),
+        Item("legacy-late", _paper("L"), fetched=date(2026, 10, 19), published=date(2026, 10, 1)),
+        Item("yesterday", _paper("Y"), fetched=datetime(2026, 10, 18, 23, 0), published=date(2026, 10, 18)),
+    ]
+    for item in items:
+        path = box.path_for(item)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(inbox.dumps(item))
+    assert (tmp_path / "inbox" / "2026-10-19" / "evening.md").exists()
+    assert box.get("evening").fetched == datetime(2026, 10, 19, 18, 34)
+    commits = {"inbox/2026-10-19/legacy-noon.md": datetime(2026, 10, 19, 12).timestamp(),
+               "inbox/2026-10-19/legacy-late.md": datetime(2026, 10, 19, 20).timestamp()}
+    monkeypatch.setattr(inbox.gitops, "added_times", lambda root, spec: commits)
+    assert [i.id for i in box.items()] == ["legacy-late", "evening", "legacy-noon", "morning", "yesterday"]
 
 
 def test_seen_round_trip(tmp_path, capsys):

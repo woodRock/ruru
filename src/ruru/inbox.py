@@ -14,14 +14,14 @@ import json
 import re
 import sys
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime, time
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
 import yaml
 
-from ruru import model
+from ruru import gitops, model
 from ruru.errors import UsageError
 from ruru.fsutil import atomic_write
 from ruru.model import ID_KINDS, Paper, norm_id
@@ -59,7 +59,7 @@ def item_id(paper: Paper, fallback: str = "") -> str:
 class Item:
     id: str
     paper: Paper
-    fetched: date
+    fetched: date | datetime  # a datetime since 2026-10-19; older items have a date
     published: date | None = None
     suggestion: dict[str, Any] | None = None
     path: Path | None = field(default=None, compare=False)
@@ -99,17 +99,27 @@ class Inbox:
         self.dir = root / "inbox"
 
     def path_for(self, item: Item) -> Path:
-        return self.dir / item.fetched.isoformat() / f"{item.id}.md"
+        return self.dir / item.fetched.strftime("%Y-%m-%d") / f"{item.id}.md"
 
     def items(self) -> list[Item]:
-        """Newest first: by fetch date, then publication date, then id."""
+        """Newest first: by fetch time (for date-only items, the commit that added the file), then
+        publication date, then id."""
         out = []
         for path in self.dir.glob("*/*.md") if self.dir.is_dir() else []:
             try:
                 out.append(loads(path.read_text(encoding="utf-8"), path))
             except (ValueError, yaml.YAMLError) as e:
                 print(f"ruru: warning: skipping {path.relative_to(self.root)}: {e}", file=sys.stderr)
-        out.sort(key=lambda i: (i.fetched, i.published or date.min, i.id), reverse=True)
+        added: dict[str, int] = {}
+        if any(not isinstance(i.fetched, datetime) for i in out):
+            added = gitops.added_times(self.root, "inbox")
+
+        def when(i: Item) -> float:
+            if isinstance(i.fetched, datetime):
+                return i.fetched.timestamp()
+            filed = added.get(i.path.relative_to(self.root).as_posix(), 0) if i.path else 0
+            return max(datetime.combine(i.fetched, time.min).timestamp(), filed)
+        out.sort(key=lambda i: (when(i), i.published or date.min, i.id), reverse=True)
         return out
 
     def get(self, item_id: str) -> Item:

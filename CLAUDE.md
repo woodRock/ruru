@@ -87,7 +87,8 @@ the user config is `~/.config/ruru/config.toml` on macOS too.
   accepts exactly one exact-title match, collapsing only records that share an id, `refresh` also
   looks for a same-title published article), `merge` (fill gaps), `apply_metadata` (only
   `METADATA` fields + ids; never erases), `changes`.
-- `inbox.py`: `Item` (paper + id, fetched, published, suggestion), `dumps`/`loads` (front matter only,
+- `inbox.py`: `Item` (paper + id, fetched (a datetime; older items a date, ordered by the commit that
+  added them), published, suggestion), `dumps`/`loads` (front matter only,
   `ITEM_FIELDS` order), `item_id`, `Inbox` (`inbox/<fetched>/<id>.md`), seen.jsonl
   (`seen_record`, `read_seen`, `append_seen`), `Deduper` (the `same_paper` rule as set lookups over
   library + inbox + seen).
