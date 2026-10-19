@@ -16,7 +16,19 @@ Agents such as Claude Code use exactly the same CLI.
 
 ## Install
 
-With [uv](https://docs.astral.sh/uv/), as an isolated tool on your PATH (`~/.local/bin/ruru`):
+```sh
+curl -fsSL https://raw.githubusercontent.com/woodRock/ruru/main/install.sh | bash
+```
+
+This installs `ruru` (with the terminal UI) with [uv](https://docs.astral.sh/uv/) as an isolated tool in `~/.local/bin`,
+installing uv first if needed (and Python 3.11 if the machine doesn't have it). No sudo. Add
+`bash -s -- --upgrade` to update to the latest `main`, or `bash -s -- --uninstall` to remove it:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/woodRock/ruru/main/install.sh | bash -s -- --upgrade
+```
+
+For development, install from a checkout instead, editable:
 
 ```bash
 uv tool install --python 3.11 --editable "/path/to/ruru[tui]"   # drop [tui] for the CLI only
