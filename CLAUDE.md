@@ -152,7 +152,8 @@ the user config is `~/.config/ruru/config.toml` on macOS too.
   on the reading list or a paper screen (`check_action` filters `triage` by its parameter); every action calls `ops` (`triage`, `suggest`, `tag`, `set_status`, `set_notes`,
   `fetch_pdf`, `fetch`, `check`); network work runs in `@work(thread=True)` workers. `fingerprint`
   (mtimes of `.git/index`, settings, seen.jsonl, papers/, inbox/ dirs) is polled every 2 s to reload
-  on outside changes. `open_file`/`webbrowser.open`/`cli.edit_text` are the seams tests patch.
+  on outside changes. Only the visible detail pane renders, `DETAIL_SECONDS` after the cursor settles
+  (`_shown` skips unchanged ones). `open_file`/`webbrowser.open`/`cli.edit_text` are the seams tests patch.
   Pilot tests in `tests/test_tui.py` (run synchronously via `asyncio.run`; no pytest plugin).
 - `logo.py`: the mascot, as rows of `(text, role)` with a 256-colour palette. `banner()`/`ansi()`
   for the CLI (bare `ruru` prints it to stderr, colour only on a TTY), `rich_text()` for the TUI's

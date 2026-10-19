@@ -53,6 +53,8 @@ from ruru.search import SORTS, Filed, filed_times, in_project, needs_filed, sear
 
 POLL_SECONDS = 2.0
 VIEW_SECONDS = 1.0  # resting on an inbox item this long marks it viewed (no longer bold)
+DETAIL_SECONDS = 0.05  # the detail pane renders once the cursor settles, so holding j stays smooth
+PANES = ("inbox", "reading", "reviews", "library", "project")
 SUGGESTION_MARK = {"keep": "+", "skip": "-", "later": "~"}  # an agent's suggestion, at a glance
 
 
@@ -370,6 +372,8 @@ class RuruApp(App[None]):
         self.review_sort = REVIEW_SORTS[0]
         self.viewed: set[str] = set()
         self._view_timer: Timer | None = None
+        self._detail_timer: Timer | None = None
+        self._shown: dict[str, tuple[str | None, tuple[str, ...]]] = {}  # each pane's content: skip re-renders
         self._kept_new: str | None = None  # marked new with `u`: not re-marked until the cursor leaves it
         self._seen = fingerprint(lib.root)
         self.sub_title = str(lib.root)
@@ -411,6 +415,7 @@ class RuruApp(App[None]):
         for table in ("#reading-table", "#library-table"):
             self.query_one(table, Table).add_columns("key", "year", "status", "tags", "title")
         self.reload()
+        self.show_details(*PANES)
         self.query_one("#inbox-table", Table).focus()
         self.set_interval(POLL_SECONDS, self.poll)
         self.start_view_timer()
@@ -501,6 +506,9 @@ class RuruApp(App[None]):
 
     def _detail(self, tab: str, markdown: str | None, *empty: str) -> None:
         """Show `markdown` in the tab's detail pane, or the mascot with the `empty` message."""
+        if self._shown.get(tab) == (markdown, empty):
+            return
+        self._shown[tab] = (markdown, empty)
         md = self.query_one(f"#{tab}-detail", Markdown)
         placeholder = self.query_one(f"#{tab}-empty", Static)
         if markdown is None:
@@ -510,44 +518,61 @@ class RuruApp(App[None]):
         placeholder.display = markdown is None
         md.display = markdown is not None
 
-    def show_details(self) -> None:
-        item = self.current_item()
-        self._detail("inbox", item_markdown(item) if item else None,
-                     "Inbox empty." if not self.filters["inbox"] else "Nothing matches the filter.",
-                     "f fetches the feeds.")
+    @property
+    def pane(self) -> str:
+        return "project" if self.tab == "projects" else self.tab
+
+    def show_details(self, *panes: str) -> None:
+        """Render the detail panes named (default: the visible one); a hidden pane catches up when its
+        tab is shown, so moving the cursor costs one render (the project pane also scans the .tex)."""
+        panes = panes or (self.pane,)
+        if "inbox" in panes:
+            item = self.current_item()
+            self._detail("inbox", item_markdown(item) if item else None,
+                         "Inbox empty." if not self.filters["inbox"] else "Nothing matches the filter.",
+                         "f fetches the feeds.")
         for tab, empty, hint in (
                 ("reading", "Nothing to read.", "l in the inbox puts a paper here; y marks it read."),
                 ("library", "The library is empty.", "y keeps a paper you've read, or `ruru add DOI`.")):
+            if tab not in panes:
+                continue
             key = self.query_one(f"#{tab}-table", Table).current_key()
             self._detail(tab, paper_markdown(self.lib.get(key), self.lib.has_pdf(key),
                                              [r for r in self.all_reviews if key in r.papers]) if key else None,
                          "No papers match." if self.filters[tab] else empty, hint)
-        review = self.current_review()
-        self._detail("reviews", review_markdown(self.lib, review) if review else None,
-                     "No reviews." if not self.filters["reviews"] else "Nothing matches the filter.",
-                     "Ask Claude Code for a review of related reading-list papers (it needs their PDFs).")
-        plist = self.query_one("#project-list", OptionList)
-        names = list(projmod.load(self.lib.settings.projects))
-        if plist.highlighted is not None and names:
-            project = projmod.load(self.lib.settings.projects)[names[plist.highlighted]]
-            self._detail("project", project_markdown(self.lib, project))
-        else:
-            self._detail("project", None, "No projects yet.",
-                         "ruru project add NAME --path … --bib … --tex …")
+        if "reviews" in panes:
+            review = self.current_review()
+            self._detail("reviews", review_markdown(self.lib, review) if review else None,
+                         "No reviews." if not self.filters["reviews"] else "Nothing matches the filter.",
+                         "Ask Claude Code for a review of related reading-list papers (it needs their PDFs).")
+        if "project" in panes:
+            plist = self.query_one("#project-list", OptionList)
+            projects = projmod.load(self.lib.settings.projects)
+            names = list(projects)
+            if plist.highlighted is not None and names:
+                self._detail("project", project_markdown(self.lib, projects[names[plist.highlighted]]))
+            else:
+                self._detail("project", None, "No projects yet.",
+                             "ruru project add NAME --path … --bib … --tex …")
 
     def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
-        self.show_details()
+        """Holding j fires this per row: render the pane once the cursor settles, not for every row."""
+        if self._detail_timer:
+            self._detail_timer.stop()
+        pane = str(event.data_table.id).removesuffix("-table")
+        self._detail_timer = self.set_timer(DETAIL_SECONDS, lambda: self.show_details(pane))
         if event.data_table.id == "inbox-table":
             self.start_view_timer()
 
     def on_option_list_option_highlighted(self, event: OptionList.OptionHighlighted) -> None:
         if event.option_list.id == "project-list":
-            self.show_details()
+            self.show_details("project")
 
     def on_tabbed_content_tab_activated(self, event: TabbedContent.TabActivated) -> None:
         target = {"inbox": "#inbox-table", "reading": "#reading-table", "reviews": "#reviews-table",
                   "library": "#library-table", "projects": "#project-list"}
         self.query_one(target[self.tab]).focus()
+        self.show_details()
         self.refresh_bindings()
         self.start_view_timer()
 

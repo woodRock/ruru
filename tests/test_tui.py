@@ -76,6 +76,13 @@ def test_inbox_lists_items_and_shows_detail(lib):
         assert table.cursor_row == 1
         await pilot.press("k")
         assert table.cursor_row == 0
+        await pilot.press("j", "j")  # the pane renders once the cursor settles, and only the visible one
+        await pilot.pause(tui.DETAIL_SECONDS * 2)
+        assert app._shown["inbox"][0] == tui.item_markdown(app.items[2])
+        library = app._shown["library"]
+        await pilot.press("k")
+        await pilot.pause(tui.DETAIL_SECONDS * 2)
+        assert app._shown["library"] is library
         assert "Inbox (4, 4 new)" in str(app.query_one("#tabs").get_tab("inbox").label)
         assert app.items[0].paper.title in tui.item_markdown(app.items[0])
     drive(lib, script)
