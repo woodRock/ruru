@@ -154,11 +154,16 @@ the user config is `~/.config/ruru/config.toml` on macOS too.
   verdict's fields through chained dialogs, `ask`), `m` the missing-PDF worker, `a` files downloads,
   `e` → `edit_at` (`editor_command`: `+LINE` or FILE:LINE). `RuruApp.project_claims` caches
   `ops.claims_and_files` on the .tex files' mtimes.
-- `claims.state` (a verdict, `unchecked` or `own`) and `claims.summarise` back both
-  `ruru claims --verdict STATE` / `--summary` and the TUI's filter and project-pane summary.
-- Own work (`ruru own`): `ops.own_keys` = library papers tagged `own-work` + ruru.toml's top-level
-  `own` list (`Settings.own`, written by `tomledit.set_list`); `ops.set_own` tags library keys and
-  lists the rest. Own keys need no verdict (`★`, not unchecked) and `cli.cited_papers` skips them.
+- `claims.state` (a verdict, `unchecked`, `outdated`), `claims.matches` (plus `own`) and
+  `claims.summarise` back both `ruru claims --verdict` / `--summary` and the TUI (`ClaimsView`).
+- `cited.py` (`ruru cited`): `[cited.<key>]` in ruru.toml (`Settings.cited`) for drafts (a ruru
+  project) and software (a repo; `CITATION.cff` → `cited.bibtex`), never in the library.
+  `ops.cited_sources` (what to read: PDF, draft .tex, README) and `ops.cited_versions` (`tex:` hash of
+  the draft's files, `git:` HEAD, `-dirty`); `record_verdicts` infers `--from` and stamps
+  `Verdict.version`; a changed version makes the state `outdated`.
+- Own work is a label (`★`), never an exemption: `ops.own_keys` = papers tagged `own-work` + every
+  `[cited]` key + the legacy top-level `own` list, which `ruru cited add` / `own remove` drain
+  (`tomledit.set_list`/`remove_key`). `ruru own add` only tags library papers.
 - `ops.rekey`: the only way a key changes; moves the directory (and the git-ignored PDF), commits,
   and reports the projects whose .tex/.bib still use the old key.
 - `skills/ruru/SKILL.md`: the agent-facing workflows and rules. `tests/test_skill_docs.py` checks

@@ -63,7 +63,8 @@ class Settings:
     auto_commit: bool = True
     feeds: list[dict[str, Any]] = field(default_factory=list)
     projects: dict[str, dict[str, Any]] = field(default_factory=dict)
-    own: list[str] = field(default_factory=list)  # keys of Jesse's own work outside the library
+    own: list[str] = field(default_factory=list)  # legacy (before [cited]): own-work keys outside the library
+    cited: dict[str, dict[str, Any]] = field(default_factory=dict)  # [cited.<key>]: drafts and software
 
 
 def load_settings(root: Path) -> Settings:
@@ -82,6 +83,7 @@ def load_settings(root: Path) -> Settings:
         feeds=list(raw.get("feeds", [])),
         projects=dict(raw.get("projects", {})),
         own=[str(k) for k in raw.get("own", [])] if isinstance(raw.get("own", []), list) else [],
+        cited=dict(raw.get("cited", {})),
     )
     if not isinstance(raw.get("own", []), list):
         raise UsageError(f"{path}: own must be a list of keys, e.g. own = [\"warpalign\"]")

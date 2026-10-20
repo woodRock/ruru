@@ -18,6 +18,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
+from ruru import cited as citedmod
 from ruru import claims as claimsmod
 from ruru import feeds as feedmod
 from ruru import gitops, model, tomledit
@@ -241,31 +242,100 @@ def suggest(lib: Library, item_id_: str, action: str, reason: str, by: str) -> I
 # --- feed settings -------------------------------------------------------------------------------
 
 OWN_TAG = "own-work"
+_OWN_COMMENT = "Your own drafts and software outside the library: `ruru own add KEY`."
+
+
+def cited_entries(lib: Library) -> dict[str, citedmod.Cited]:
+    """`[cited.<key>]`: drafts and software a paper cites that aren't in the library."""
+    return citedmod.load(lib.settings.cited)
 
 
 def own_keys(lib: Library) -> set[str]:
-    """Jesse's own work: library papers tagged own-work, and the keys listed in ruru.toml's `own`
-    (drafts and software that aren't in the library). Claims citing them aren't checked."""
-    return set(lib.settings.own) | {p.key for p in lib.papers() if OWN_TAG in p.tags}
+    """Jesse's own work (a label: it is checked like anything else): library papers tagged own-work,
+    every `[cited]` draft and software, and keys in the legacy `own` list."""
+    return (set(lib.settings.own) | set(lib.settings.cited)
+            | {p.key for p in lib.papers() if OWN_TAG in p.tags})
 
 
 def set_own(lib: Library, add: Sequence[str] = (), remove: Sequence[str] = ()) -> None:
-    """Mark keys as (not) Jesse's own work: a library paper gets (loses) the own-work tag, any
-    other key goes in (out of) ruru.toml's `own` list."""
-    inside = [k for k in [*add, *remove] if lib.exists(k)]
-    if tagged := [k for k in add if k in inside]:
-        tag(lib, tagged, add=[OWN_TAG])
-    if untagged := [k for k in remove if k in inside]:
+    """Tag (untag) library papers as Jesse's own work. Drafts and software go in `[cited]`
+    (`add_cited`); `remove` also drops keys from the legacy `own` list."""
+    if outside := [k for k in add if not lib.exists(k)]:
+        raise UsageError(f"not in the library: {', '.join(outside)}. Drafts and software: "
+                         f"`ruru cited add {outside[0]} --draft PROJECT` or `--software PATH`")
+    if add:
+        tag(lib, list(add), add=[OWN_TAG])
+    if untagged := [k for k in remove if lib.exists(k)]:
         tag(lib, untagged, remove=[OWN_TAG])
-    listed = [k for k in lib.settings.own if k not in remove]
-    listed += [k for k in add if k not in inside and k not in listed]
-    if listed != lib.settings.own:
-        text = (lib.root / SETTINGS_FILE).read_text(encoding="utf-8")
-        text = tomledit.set_list(text, "own", sorted(listed),
-                                 "Your own drafts and software outside the library: `ruru own add KEY`.")
-        changed = [k for k in [*add, *remove] if k not in inside]
-        _rewrite_settings(lib, text, f"ruru: own {'add' if add else 'remove'} {_summary(changed)}")
-        lib.settings.own = sorted(listed)
+    _drop_legacy_own(lib, [k for k in remove if not lib.exists(k)])
+
+
+def _drop_legacy_own(lib: Library, keys: Sequence[str]) -> None:
+    listed = [k for k in lib.settings.own if k not in keys]
+    if listed == lib.settings.own:
+        return
+    text = (lib.root / SETTINGS_FILE).read_text(encoding="utf-8")
+    text = (tomledit.set_list(text, "own", listed, _OWN_COMMENT) if listed
+            else tomledit.remove_key(text, "own", _OWN_COMMENT))
+    _rewrite_settings(lib, text, f"ruru: own remove {_summary(list(keys))}")
+
+
+def add_cited(lib: Library, key: str, kind: str, *, project: str | None = None, path: str | None = None,
+              url: str | None = None) -> citedmod.Cited:
+    """Add `[cited.<key>]`: a draft (its ruru project) or software (its repo and/or URL)."""
+    values = {"kind": kind, "project": project, "path": path, "url": url}
+    entry = citedmod.Cited.from_dict(key, values)
+    if lib.exists(key):
+        raise UsageError(f"{key} is in the library; `ruru own add {key}` marks it as your own work")
+    if key in lib.settings.cited:
+        raise UsageError(f"{key} is already cited as {lib.settings.cited[key].get('kind')}; "
+                         f"`ruru cited remove {key}` first")
+    if project:
+        get_project(lib, project)
+    if entry.path and not entry.path.is_dir():
+        print(f"ruru: warning: {entry.path} does not exist (yet)", file=sys.stderr)
+    text = (lib.root / SETTINGS_FILE).read_text(encoding="utf-8")
+    _rewrite_settings(lib, tomledit.append_table(text, f"[cited.{key}]", values),
+                      f"ruru: cited add {key} ({kind})")
+    _drop_legacy_own(lib, [key])
+    return entry
+
+
+def remove_cited(lib: Library, key: str) -> None:
+    if key not in lib.settings.cited:
+        raise UsageError(f"no [cited.{key}] in ruru.toml")
+    text = (lib.root / SETTINGS_FILE).read_text(encoding="utf-8")
+    _rewrite_settings(lib, tomledit.remove_table(text, f"[cited.{key}]"), f"ruru: cited remove {key}")
+
+
+def cited_sources(lib: Library, key: str) -> list[Path]:
+    """What a claim citing `key` is checked against: the paper's PDF, a draft's .tex files, or a
+    repo's README and CITATION.cff. Empty when there's nothing to read yet."""
+    if lib.exists(key):
+        return [lib.paper_dir(key) / "paper.pdf"] if lib.has_pdf(key) else []
+    entry = cited_entries(lib).get(key)
+    if entry is None:
+        return []
+    if entry.kind == "draft":
+        assert entry.project
+        return [f for f in _tex_scan(get_project(lib, entry.project)).files if f.exists()]
+    return entry.docs()
+
+
+def cited_versions(lib: Library, keys: Sequence[str] | None = None) -> dict[str, str | None]:
+    """The current version of each cited draft (`tex:<hash>`) and software (`git:<commit>`)."""
+    out: dict[str, str | None] = {}
+    for key, entry in cited_entries(lib).items():
+        if keys is not None and key not in keys:
+            continue
+        if entry.kind == "draft":
+            try:
+                out[key] = citedmod.tex_version(cited_sources(lib, key))
+            except RuruError:
+                out[key] = None
+        else:
+            out[key] = entry.git_version()
+    return out
 
 
 def _rewrite_settings(lib: Library, text: str, message: str) -> None:
@@ -275,10 +345,13 @@ def _rewrite_settings(lib: Library, text: str, message: str) -> None:
         raise UsageError(f"refusing to write invalid ruru.toml: {e}") from None
     feedmod.load(list(raw.get("feeds", [])))
     projmod.load(dict(raw.get("projects", {})))
+    citedmod.load(dict(raw.get("cited", {})))
     with lib.transaction(message) as tx:
         tx.write(lib.root / SETTINGS_FILE, text)
     lib.settings.feeds = list(raw.get("feeds", []))
     lib.settings.projects = dict(raw.get("projects", {}))
+    lib.settings.cited = dict(raw.get("cited", {}))
+    lib.settings.own = [str(k) for k in raw.get("own", [])]
 
 
 def add_feed(lib: Library, feed: Feed) -> None:
@@ -706,16 +779,25 @@ def record_verdicts(lib: Library, name: str, records: Sequence[dict[str, Any]], 
     if not records:
         raise UsageError("no verdicts given")
     current = {c.id: c for c in claims(lib, name)}
+    entries = cited_entries(lib)
+    versions = cited_versions(lib, [str(r.get("key", "")) for r in records])
     made = []
     for r in records:
         claim = current.get(str(r.get("claim", "")))
         if claim is None:
             raise UsageError(f"no claim {r.get('claim')!r} in {name}'s tex: `ruru claims {name}` lists them")
         key = str(r.get("key", ""))
+        entry = entries.get(key)
+        source = str(r.get("from") or (entry.kind if entry else "pdf"))
+        if source in citedmod.KINDS and (entry is None or entry.kind != source):
+            raise UsageError(f"--from {source} is for a cited {source}: `ruru cited add {key} --{source} …`")
+        if entry and source == "pdf":
+            raise UsageError(f"{key} is a cited {entry.kind}, with no PDF: say --from {entry.kind}")
         made.append(claimsmod.make(
-            claim, key, str(r.get("verdict", "")), source=str(r.get("from") or "pdf"), page=r.get("page"),
+            claim, key, str(r.get("verdict", "")), source=source, page=r.get("page"),
             quote=r.get("quote"), note=r.get("note"), by=r.get("by") or by,
-            has_pdf=lib.exists(key) and lib.has_pdf(key)))
+            has_pdf=lib.exists(key) and lib.has_pdf(key),
+            version=versions.get(key) if source in citedmod.KINDS else None))
     verdicts = claimsmod.load(lib.root, name)
     verdicts.update({(v.claim, v.key): v for v in made})
     summary = _summary([f"{v.key}:{v.verdict}" for v in made])
