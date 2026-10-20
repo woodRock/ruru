@@ -31,6 +31,9 @@ VERDICTS = ("supported", "partial", "unsupported", "not-found", "background")
 NEEDS_QUOTE = {"supported", "partial"}
 NEEDS_NOTE = {"partial", "unsupported"}
 SOURCES = ("pdf", "abstract", "other")  # what the verdict rests on
+MARKS = {"supported": ("✓", "green"), "partial": ("~", "yellow"), "unsupported": ("✗", "red"),
+         "not-found": ("?", "yellow"), "background": ("·", "dim")}
+UNCHECKED = "○"
 DIR = "claims"
 
 # Words whose trailing full stop doesn't end a sentence.
@@ -129,6 +132,12 @@ def extract(path: Path) -> list[Claim]:
         line = tex.count("\n", 0, inside[0].start()) + 1
         claims.append(Claim(claim_id(text), path, line, keys, text))
     return claims
+
+
+def where(claim: Claim, mains: list[Path]) -> str:
+    """The claim's file, relative to the directory of the main .tex it belongs under."""
+    base = next((m.parent for m in mains if claim.file.is_relative_to(m.parent)), None)
+    return str(claim.file.relative_to(base) if base else claim.file)
 
 
 # --- verdicts ------------------------------------------------------------------------------------

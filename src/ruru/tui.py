@@ -8,13 +8,17 @@ changes them.
 Keys: j/k move, / filter, r reload, q quit; tabs 1 Inbox, 2 Library, 3 Projects.
 Inbox: y keep, n skip, l later, a accept the suggestion, t keep with tags, p keep for a project,
 o open URL, f fetch. Library: enter open, t tag, s status, e edit notes, d PDF (fetch/open), o URL.
-Projects: c re-check.
+Projects: c re-check, m get the missing PDFs its claims cite, enter the claims screen.
+Claims: / filter (k:KEY v:VERDICT v:unchecked), v verdict, x drop it, d PDF, e edit the .tex there,
+m missing PDFs.
 """
 
 from __future__ import annotations
 
 import argparse
 import contextlib
+import os
+import shlex
 import subprocess
 import webbrowser
 from collections.abc import Callable, Iterator
@@ -40,6 +44,7 @@ from textual.widgets import (
     TabPane,
 )
 
+from ruru import claims as claimsmod
 from ruru import cli, logo, ops
 from ruru import projects as projmod
 from ruru.config import resolve_library
@@ -69,12 +74,27 @@ def open_file(path: Path) -> None:
     subprocess.run([cli.opener, str(path)], check=False)
 
 
+def editor_command(path: Path, line: int) -> list[str]:
+    """$VISUAL/$EDITOR (vi) opened at `line`: `+LINE FILE` for terminal editors, FILE:LINE for GUI ones."""
+    editor = shlex.split(os.environ.get("VISUAL") or os.environ.get("EDITOR") or "vi")
+    name = Path(editor[0]).name
+    if name in ("code", "cursor", "codium"):
+        return [*editor, "-g", f"{path}:{line}"]
+    if name in ("subl", "zed"):
+        return [*editor, f"{path}:{line}"]
+    return [*editor, f"+{line}", str(path)]
+
+
+def edit_at(path: Path, line: int) -> None:
+    subprocess.run(editor_command(path, line), check=False)
+
+
 def fingerprint(root: Path) -> tuple[tuple[str, int], ...]:
     """Cheap change detection: mtimes of the git index, settings, seen.jsonl and the directories
     whose contents change when papers or inbox items are added, removed or committed."""
     inbox = root / "inbox"
     paths = [root / ".git" / "index", root / "seen.jsonl", root / "ruru.toml", root / "papers", inbox,
-             root / "reviews"]
+             root / "reviews", root / claimsmod.DIR]
     paths += sorted(inbox.iterdir()) if inbox.is_dir() else []
     return tuple((str(p), p.stat().st_mtime_ns) for p in paths if p.exists())
 
@@ -86,7 +106,7 @@ def parse_filter(text: str) -> tuple[dict[str, str], str]:
     fields, words = {}, []
     for token in text.split():
         prefix, _, value = token.partition(":")
-        if value and prefix in ("t", "p", "s", "f"):
+        if value and prefix in ("t", "p", "s", "f", "k", "v"):
             fields[prefix] = value
         else:
             words.append(token)
@@ -124,6 +144,27 @@ def filter_reviews(reviews: list[Review], text: str) -> list[Review]:
         reviews = [r for r in reviews if fields["t"] in r.tags]
     folded = [w.lower() for w in words.split()]
     return [r for r in reviews if all(w in f"{r.title} {r.body} {' '.join(r.papers)}".lower() for w in folded)]
+
+
+Verdicts = dict[tuple[str, str], claimsmod.Verdict]
+
+
+def filter_claims(claims: list[claimsmod.Claim], verdicts: Verdicts, text: str) -> list[claimsmod.Claim]:
+    """Words in the sentence; k:KEY cites it; v:VERDICT has it for some key (v:unchecked: a key without)."""
+    fields, words = parse_filter(text)
+    folded = [w.lower() for w in words.split()]
+
+    def given(c: claimsmod.Claim) -> set[str]:
+        return {verdicts[(c.id, k)].verdict if (c.id, k) in verdicts else "unchecked" for k in c.keys}
+    return [c for c in claims
+            if (not fields.get("k") or fields["k"] in c.keys)
+            and (not fields.get("v") or fields["v"] in given(c))
+            and all(w in c.text.lower() for w in folded)]
+
+
+def claim_marks(c: claimsmod.Claim, verdicts: Verdicts) -> str:
+    return "".join(claimsmod.MARKS[verdicts[(c.id, k)].verdict][0] if (c.id, k) in verdicts
+                   else claimsmod.UNCHECKED for k in c.keys)
 
 
 # --- markdown views ------------------------------------------------------------------------------
@@ -176,7 +217,53 @@ def paper_markdown(p: Paper, has_pdf: bool = False, reviews: list[Review] | None
     return "\n\n".join(line for line in lines if line)
 
 
-def project_markdown(lib: Library, project: projmod.Project) -> str:
+def claim_markdown(lib: Library, c: claimsmod.Claim, verdicts: Verdicts, place: str) -> str:
+    lines = [f"### {place}:{c.line}", "> " + c.text, f"`{c.id}`"]
+    for k in c.keys:
+        title = f" — {lib.get(k).title}" if lib.exists(k) else ""
+        v = verdicts.get((c.id, k))
+        if v is None:
+            why = ("" if lib.has_pdf(k) else " · no PDF (m gets the missing ones)") if lib.exists(k) \
+                else " · not in the library"
+            lines += [f"#### {claimsmod.UNCHECKED} `{k}`{title}", f"*unchecked*{why} · v records a verdict"]
+            continue
+        page = f"p. {v.page}, " if v.page else ""
+        lines.append(f"#### {claimsmod.MARKS[v.verdict][0]} `{k}`{title}")
+        lines.append(f"**{v.verdict}** ({page}from {v.source}{', by ' + v.by if v.by else ''}, {v.date})")
+        lines += [f"> {v.quote}"] if v.quote else []
+        lines += [v.note] if v.note else []
+    return "\n\n".join(lines)
+
+
+def claims_summary(lib: Library, project: projmod.Project, claims: list[claimsmod.Claim],
+                   verdicts: Verdicts) -> list[str]:
+    """The project pane's Claims section: counts, the problems in full, what's left and why."""
+    pairs = [(c, k) for c in claims for k in c.keys]
+    counts = {name: sum(1 for c, k in pairs if (v := verdicts.get((c.id, k))) and v.verdict == name)
+              for name in claimsmod.VERDICTS}
+    unchecked = sum(1 for c, k in pairs if (c.id, k) not in verdicts)
+    keys = list(dict.fromkeys(k for _, k in pairs))
+    no_pdf = [k for k in keys if lib.exists(k) and not lib.has_pdf(k)]
+    unknown = [k for k in keys if not lib.exists(k)]
+    lines = [f"### Claims ({len(claims)} sentences citing {len(keys)} keys)",
+             " · ".join([f"{claimsmod.MARKS[n][0]} {n} {counts[n]}" for n in claimsmod.VERDICTS if counts[n]]
+                        + [f"{claimsmod.UNCHECKED} unchecked {unchecked}"])]
+    for c, k in pairs:
+        v = verdicts.get((c.id, k))
+        if v and v.verdict in ("unsupported", "partial", "not-found"):
+            detail = " ".join(x for x in (f"“{v.quote}”" if v.quote else "", v.note or "") if x)
+            lines.append(f"- {claimsmod.MARKS[v.verdict][0]} **{v.verdict}** `{k}` "
+                         f"{claimsmod.where(c, project.tex_paths)}:{c.line}: {detail}".rstrip(": "))
+    if no_pdf:
+        lines.append(f"**No PDF ({len(no_pdf)}):** " + ", ".join(f"`{k}`" for k in no_pdf) + " · m gets them")
+    if unknown:
+        lines.append("**Not in the library:** " + ", ".join(f"`{k}`" for k in unknown))
+    lines.append("*enter: every claim, with its verdicts*")
+    return lines
+
+
+def project_markdown(lib: Library, project: projmod.Project,
+                     claims: tuple[list[claimsmod.Claim], Verdicts] | None = None) -> str:
     papers = [p for p in lib.papers() if project.name in p.projects]
     order = {s: i for i, s in enumerate(STATUSES)}
     lines = [f"## {project.name}",
@@ -202,6 +289,8 @@ def project_markdown(lib: Library, project: projmod.Project) -> str:
             lines.append(f"**{label}:** " + ", ".join(f"`{k}`" for k in keys))
     lines += [f"**Duplicate:** `{a}` = `{b}`" for a, b in report.duplicates]
     lines += [f"*{w}*" for w in report.warnings]
+    if claims is not None:
+        lines += claims_summary(lib, project, *claims)
     return "\n\n".join(lines)
 
 
@@ -306,6 +395,216 @@ class PaperScreen(Screen[None]):
                                Reviews(app.lib.root).citing(self.key)))
 
 
+Step = tuple[str, Callable[[dict[str, str]], ModalScreen[str | None]], Callable[[dict[str, str]], bool]]
+
+
+class ClaimsScreen(Screen[None]):
+    """A project's citing sentences and the verdict on each cited key (`ruru claims`, `ruru verdict`)."""
+
+    BINDINGS: ClassVar[list[BindingType]] = [
+        Binding("escape,q", "back", "back"),
+        Binding("slash", "filter", "filter"),
+        Binding("v", "verdict", "verdict"),
+        Binding("x", "drop", "drop verdict"),
+        Binding("d", "pdf", "PDF"),
+        Binding("e", "edit", "edit .tex"),
+        Binding("m", "app.missing_pdfs", "missing PDFs"),
+        Binding("a", "add_pdfs", "file downloads"),
+    ]
+
+    def __init__(self, project: str) -> None:
+        super().__init__()
+        self.project = project
+        self.filter = ""
+        self.rows: dict[str, claimsmod.Claim] = {}
+        self.verdicts: Verdicts = {}
+        self.mains: list[Path] = []
+        self._timer: Timer | None = None
+
+    @property
+    def ruru(self) -> RuruApp:
+        app = self.app
+        assert isinstance(app, RuruApp)
+        return app
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        yield Input(id="claims-filter", placeholder="filter: words, k:KEY v:VERDICT v:unchecked (enter to apply)")
+        with Horizontal(classes="pane"):
+            yield Table(id="claims-table", cursor_type="row", zebra_stripes=True)
+            with VerticalScroll(classes="detail"):
+                yield Static(id="claims-empty", classes="empty")
+                yield Markdown(id="claims-detail")
+        yield Footer()
+
+    def on_mount(self) -> None:
+        self.query_one(Table).add_columns("", "where", "keys", "sentence")
+        self.refresh_claims()
+        self.query_one(Table).focus()
+
+    def refresh_claims(self) -> None:
+        app = self.ruru
+        try:
+            self.mains = ops.get_project(app.lib, self.project).tex_paths
+            claims = app.project_claims(self.project)
+        except RuruError as e:
+            app.notify(str(e), severity="error", timeout=8)
+            return
+        self.verdicts = claimsmod.load(app.lib.root, self.project)
+        shown = filter_claims(claims, self.verdicts, self.filter)
+        self.rows = {}
+        for c in shown:
+            self.rows.setdefault(f"{c.id}@{c.file}:{c.line}", c)
+        self.query_one(Table).refill([
+            (key, [claim_marks(c, self.verdicts), f"{claimsmod.where(c, self.mains)}:{c.line}", " ".join(c.keys),
+                   c.text]) for key, c in self.rows.items()])
+        checked = sum((c.id, k) in self.verdicts for c in claims for k in c.keys)
+        total = sum(len(c.keys) for c in claims)
+        self.sub_title = (f"{self.project}: {len(shown)} of {len(claims)} claims · {checked}/{total} cited keys "
+                          "checked" + (f" · filter: {self.filter}" if self.filter else ""))
+        self.show_claim()
+
+    def current(self) -> claimsmod.Claim | None:
+        key = self.query_one(Table).current_key()
+        return self.rows.get(key) if key else None
+
+    def show_claim(self) -> None:
+        c = self.current()
+        md = self.query_one("#claims-detail", Markdown)
+        empty = self.query_one("#claims-empty", Static)
+        if c is None:
+            empty.update(logo.rich_text(logo.SMALL, "No claims match." if self.filter else "No citing sentences.",
+                                        "/ changes the filter." if self.filter else "Cite something in the .tex."))
+        else:
+            md.update(claim_markdown(self.ruru.lib, c, self.verdicts, claimsmod.where(c, self.mains)))
+        empty.display = c is None
+        md.display = c is not None
+
+    def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
+        event.stop()
+        if self._timer:
+            self._timer.stop()
+        self._timer = self.set_timer(DETAIL_SECONDS, self.show_claim)
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        event.stop()
+        self.filter = event.value.strip()
+        event.input.remove_class("shown")
+        self.refresh_claims()
+        self.query_one(Table).focus()
+
+    def action_back(self) -> None:
+        self.app.pop_screen()
+
+    def action_filter(self) -> None:
+        box = self.query_one("#claims-filter", Input)
+        box.value = self.filter
+        box.add_class("shown")
+        box.focus()
+
+    def pick_key(self, keys: list[str], label: str, then: Callable[[str], None]) -> None:
+        if not keys:
+            return
+        if len(keys) == 1:
+            then(keys[0])
+            return
+        self.app.push_screen(Choose(label, keys), lambda k: then(k) if k else None)
+
+    def ask(self, steps: list[Step], done: Callable[[dict[str, str]], None],
+            answers: dict[str, str] | None = None) -> None:
+        """Push each step's dialog in turn (those whose condition holds); escape anywhere cancels."""
+        answers = answers or {}
+        step = next((step for step in steps if step[0] not in answers and step[2](answers)), None)
+        if step is None:
+            done(answers)
+            return
+        name, make, _ = step
+
+        def got(value: str | None) -> None:
+            if value is not None:
+                self.ask(steps, done, {**answers, name: value})
+        self.app.push_screen(make(answers), got)
+
+    def action_verdict(self) -> None:
+        c = self.current()
+        if c is None:
+            return
+        lib = self.ruru.lib
+
+        def judge(k: str) -> None:
+            has_pdf = lib.exists(k) and lib.has_pdf(k)
+            old = self.verdicts.get((c.id, k))
+
+            def was(field: str) -> str:
+                return str(getattr(old, field, None) or "")
+            steps: list[Step] = [
+                ("verdict", lambda a: Choose(f"Does {k} support this sentence?", list(claimsmod.VERDICTS)),
+                 lambda a: True),
+                ("from", lambda a: Choose(f"{k} has no PDF here. What did you read?", ["abstract", "other"]),
+                 lambda a: not has_pdf),
+                ("quote", lambda a: Prompt(f"{k}'s own words, verbatim:", value=was("quote")),
+                 lambda a: a["verdict"] in claimsmod.NEEDS_QUOTE),
+                ("page", lambda a: Prompt("Page (optional):", value=was("page")),
+                 lambda a: has_pdf and a["verdict"] in claimsmod.NEEDS_QUOTE),
+                ("note", lambda a: Prompt("What does the paper say instead?", value=was("note")),
+                 lambda a: a["verdict"] in claimsmod.NEEDS_NOTE),
+            ]
+
+            def record(a: dict[str, str]) -> None:
+                self.ruru.attempt(lambda: ops.record_verdicts(lib, self.project, [{"claim": c.id, "key": k, **a}]),
+                                  f"{k}: {a['verdict']}")
+            self.ask(steps, record)
+        self.pick_key(c.keys, "Which cited paper?", judge)
+
+    def action_drop(self) -> None:
+        c = self.current()
+        if c is None:
+            return
+        judged = [k for k in c.keys if (c.id, k) in self.verdicts]
+        if not judged:
+            self.app.notify("no verdict on this claim yet", severity="warning")
+            return
+        def drop(k: str) -> None:
+            self.ruru.attempt(lambda: ops.drop_verdicts(self.ruru.lib, self.project, c.id, [k]),
+                              f"dropped the verdict for {k}")
+        self.pick_key(judged, "Drop the verdict for which paper?", drop)
+
+    def action_pdf(self) -> None:
+        c = self.current()
+        if c is None:
+            return
+        app = self.ruru
+        known = [k for k in c.keys if app.lib.exists(k)]
+        if not known:
+            app.notify(f"not in the library: {', '.join(c.keys)}", severity="warning")
+            return
+
+        def show(k: str) -> None:
+            if app.lib.has_pdf(k):
+                open_file(app.lib.paper_dir(k) / "paper.pdf")
+            else:
+                app.notify(f"looking for an open-access PDF of {k}…")
+                app.fetch_pdf(k)
+        self.pick_key(known, "Which paper's PDF?", show)
+
+    def action_edit(self) -> None:
+        c = self.current()
+        if c is None:
+            return
+        with self.ruru.suspended():
+            edit_at(c.file, c.line)
+        self.ruru.reload()
+
+    def action_add_pdfs(self) -> None:
+        def add() -> None:
+            filed, refused = ops.add_pdfs(self.ruru.lib, [cli.downloads_dir()])
+            for src, problem in refused:
+                self.app.notify(f"{src.name}: {problem}", severity="warning", timeout=8)
+            self.app.notify(f"filed {len(filed)} PDF(s) from {cli.downloads_dir()}" if filed
+                            else f"no KEY.pdf files in {cli.downloads_dir()}")
+        self.ruru.attempt(add)
+
+
 # --- the app -------------------------------------------------------------------------------------
 
 class RuruApp(App[None]):
@@ -315,8 +614,8 @@ class RuruApp(App[None]):
     .pane { height: 1fr; }
     .pane Table { width: 3fr; }
     .pane .detail { width: 2fr; border-left: solid $primary-darken-2; padding: 0 1; }
-    #filter { dock: top; display: none; }
-    #filter.shown { display: block; }
+    #filter, #claims-filter { dock: top; display: none; }
+    #filter.shown, #claims-filter.shown { display: block; }
     Prompt, Choose { align: center middle; }
     .dialog { width: 70; height: auto; max-height: 20; border: thick $primary; background: $surface; padding: 1; }
     #project-list { width: 1fr; }
@@ -350,13 +649,14 @@ class RuruApp(App[None]):
         Binding("o", "open_url", "open URL"),
         # projects
         Binding("c", "check", "check"),
+        Binding("m", "missing_pdfs", "missing PDFs"),
     ]
     TAB_ACTIONS: ClassVar[dict[str, set[str]]] = {
         "inbox": {"triage", "accept", "keep_for_project", "fetch", "toggle_viewed", "tag", "open_url"},
         "reading": {"triage", "open_paper", "edit_notes", "status", "pdf", "remove", "sort", "tag", "open_url"},
         "reviews": {"triage", "open_url", "sort"},
         "library": {"open_paper", "edit_notes", "status", "pdf", "remove", "sort", "tag", "open_url"},
-        "projects": {"check"},
+        "projects": {"check", "missing_pdfs"},
     }
 
     def __init__(self, lib: Library) -> None:
@@ -376,6 +676,7 @@ class RuruApp(App[None]):
         self._shown: dict[str, tuple[str | None, tuple[str, ...]]] = {}  # each pane's content: skip re-renders
         self._kept_new: str | None = None  # marked new with `u`: not re-marked until the cursor leaves it
         self._seen = fingerprint(lib.root)
+        self._claims: dict[tuple[str, ...], tuple[tuple[int, ...], list[Path], list[claimsmod.Claim]]] = {}
         self.sub_title = str(lib.root)
 
     def compose(self) -> ComposeResult:
@@ -429,6 +730,8 @@ class RuruApp(App[None]):
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
         """Tab-specific actions are only offered (and shown in the footer) on their tab. On the reading
         list and a paper's screen, `y` (keep) marks the paper read; skip and later are inbox-only."""
+        if isinstance(self.screen, ClaimsScreen):
+            return action in ("missing_pdfs", "quit", "reload")
         if isinstance(self.screen, PaperScreen):
             if action == "triage":
                 return parameters == ("keep",) and self.lib.get(self.screen.key).status != "read"
@@ -490,6 +793,8 @@ class RuruApp(App[None]):
         self.show_details()
         if isinstance(self.screen, PaperScreen):
             self.screen.refresh_paper()
+        if isinstance(self.screen, ClaimsScreen):
+            self.screen.refresh_claims()
 
     def current_item(self) -> Item | None:
         key = self.query_one("#inbox-table", Table).current_key()
@@ -550,7 +855,12 @@ class RuruApp(App[None]):
             projects = projmod.load(self.lib.settings.projects)
             names = list(projects)
             if plist.highlighted is not None and names:
-                self._detail("project", project_markdown(self.lib, projects[names[plist.highlighted]]))
+                project = projects[names[plist.highlighted]]
+                claims = None
+                if project.tex:
+                    with contextlib.suppress(RuruError, OSError):
+                        claims = (self.project_claims(project.name), claimsmod.load(self.lib.root, project.name))
+                self._detail("project", project_markdown(self.lib, project, claims))
             else:
                 self._detail("project", None, "No projects yet.",
                              "ruru project add NAME --path … --bib … --tex …")
@@ -563,6 +873,14 @@ class RuruApp(App[None]):
         self._detail_timer = self.set_timer(DETAIL_SECONDS, lambda: self.show_details(pane))
         if event.data_table.id == "inbox-table":
             self.start_view_timer()
+
+    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
+        if event.option_list.id == "project-list":
+            name = self.current_project()
+            if name and projmod.load(self.lib.settings.projects)[name].tex:
+                self.push_screen(ClaimsScreen(name))
+            elif name:
+                self.notify(f"{name} lists no tex files: add it again with --tex", severity="warning")
 
     def on_option_list_option_highlighted(self, event: OptionList.OptionHighlighted) -> None:
         if event.option_list.id == "project-list":
@@ -608,6 +926,27 @@ class RuruApp(App[None]):
         current = read_viewed(self.lib.root)
         write_viewed(self.lib.root, current | {item_id} if viewed else current - {item_id})
         self.reload()
+
+    def current_project(self) -> str | None:
+        if isinstance(self.screen, ClaimsScreen):
+            return self.screen.project
+        names = list(projmod.load(self.lib.settings.projects))
+        highlighted = self.query_one("#project-list", OptionList).highlighted
+        return names[highlighted] if highlighted is not None and names else None
+
+    def project_claims(self, name: str) -> list[claimsmod.Claim]:
+        """`ops.claims`, re-read only when one of the .tex files it came from has changed."""
+        project = ops.get_project(self.lib, name)
+        key = (name, *map(str, project.tex_paths))
+
+        def stamp(files: list[Path]) -> tuple[int, ...]:
+            return tuple(f.stat().st_mtime_ns if f.exists() else 0 for f in files)
+        cached = self._claims.get(key)
+        if cached and cached[0] == stamp(cached[1]):
+            return cached[2]
+        claims, files = ops.claims_and_files(self.lib, name)
+        self._claims[key] = (stamp(files), files, claims)
+        return claims
 
     def attempt(self, fn: Callable[[], Any], done: str | None = None) -> bool:
         """Run a library operation; report errors instead of crashing; reload either way."""
@@ -857,6 +1196,35 @@ class RuruApp(App[None]):
         self.call_from_thread(self.reload)
         message = f"{len(items)} new item(s)" + (f"; failed: {', '.join(failed)}" if failed else "")
         self.call_from_thread(self.notify, message, severity="warning" if failed else "information")
+
+    def action_missing_pdfs(self) -> None:
+        name = self.current_project()
+        if name:
+            self.notify(f"{name}: looking for the cited papers' PDFs…")
+            self.get_missing_pdfs(name)
+
+    @work(thread=True, exclusive=True, group="network")
+    def get_missing_pdfs(self, name: str) -> None:
+        """Download the open-access PDFs the project's claims need, then open the rest's DOI pages."""
+        try:
+            papers, unknown = cli.cited_papers(self.lib, name)
+            before = [p for p in papers if not self.lib.has_pdf(p.key)]
+            missing = cli.fetch_open_access(self.lib, before)
+        except RuruError as e:
+            self.call_from_thread(self.notify, str(e), severity="error", timeout=8)
+            return
+        opened = cli.open_links(missing)
+        parts = [f"saved {len(before) - len(missing)} open-access PDF(s)"] if len(before) > len(missing) else []
+        if opened:
+            parts.append(f"opened {len(opened)} publisher page(s): save each as KEY.pdf in {cli.downloads_dir()}, "
+                         "then a files them")
+        if len(missing) > len(opened):
+            parts.append(f"{len(missing) - len(opened)} more without a link or past the {cli.MAX_TABS}-tab limit")
+        if unknown:
+            parts.append(f"not in the library: {', '.join(unknown)}")
+        self.call_from_thread(self.reload)
+        self.call_from_thread(self.notify, "; ".join(parts) or "every cited paper has its PDF",
+                              severity="warning" if missing or unknown else "information", timeout=12)
 
     def action_check(self) -> None:
         self.show_details()

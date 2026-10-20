@@ -148,7 +148,12 @@ the user config is `~/.config/ruru/config.toml` on macOS too.
   id = hash of the text with cites as `[@a; @b]`. Verdicts per (claim, key) in
   `claims/<project>.json` (`VERDICTS`; `make` enforces quote/note and `--from pdf` needing a PDF);
   verdicts whose claim is gone are `stale`. `ops.cited_keys` (the claims' keys) backs
-  `ruru pdf missing --cited`; `--fetch` tries open access first. Agents may record verdicts.
+  `ruru pdf missing --cited`; `--fetch` tries open access first (`cli.cited_papers`,
+  `fetch_open_access`, `open_links`, shared with the TUI). Agents may record verdicts.
+  TUI: the project pane's Claims section (`claims_summary`), `enter` → `ClaimsScreen` (`v` asks the
+  verdict's fields through chained dialogs, `ask`), `m` the missing-PDF worker, `a` files downloads,
+  `e` → `edit_at` (`editor_command`: `+LINE` or FILE:LINE). `RuruApp.project_claims` caches
+  `ops.claims_and_files` on the .tex files' mtimes.
 - `ops.rekey`: the only way a key changes; moves the directory (and the git-ignored PDF), commits,
   and reports the projects whose .tex/.bib still use the old key.
 - `skills/ruru/SKILL.md`: the agent-facing workflows and rules. `tests/test_skill_docs.py` checks

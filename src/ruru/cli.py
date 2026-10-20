@@ -494,11 +494,9 @@ def cmd_pdf_missing(args: argparse.Namespace) -> int:
     if args.cited and args.keys:
         raise UsageError("give keys or --cited PROJECT, not both")
     if args.cited:
-        cited = ops.cited_keys(lib, args.cited)
-        unknown = [k for k in cited if not lib.exists(k)]
+        papers, unknown = cited_papers(lib, args.cited)
         if unknown:
             warn(f"cited but not in the library: {', '.join(unknown)} (`ruru check {args.cited}`)")
-        papers = [lib.get(k) for k in cited if k not in unknown]
     elif args.keys:
         papers = [lib.get(k) for k in args.keys]
     else:
@@ -506,14 +504,8 @@ def cmd_pdf_missing(args: argparse.Namespace) -> int:
                   and (not args.project or in_project(p, args.project))
                   and all(_tag(t) in p.tags for t in args.tag or [])]
     missing = [p for p in sort_papers(papers, "key") if not lib.has_pdf(p.key)]
-    if args.fetch and missing:
-        with client_for(lib) as client:
-            for p in missing:
-                try:
-                    ops.fetch_pdf(lib, client, p.key)
-                except RuruError as e:
-                    print(f"{p.key}: {e}", file=sys.stderr)
-        missing = [p for p in missing if not lib.has_pdf(p.key)]
+    if args.fetch:
+        missing = fetch_open_access(lib, missing)
     if args.json:
         emit_json([{"key": p.key, "title": p.title, "link": ops.paper_link(p), "save_as": f"{p.key}.pdf"}
                    for p in missing])
@@ -524,9 +516,7 @@ def cmd_pdf_missing(args: argparse.Namespace) -> int:
         for p in missing:
             print(f"{style(f'{p.key:<28}', 'bold')} {ops.paper_link(p) or style('(no link)', 'dim')}  {p.title}")
     if args.open:
-        openable = [p for p in missing if ops.paper_link(p)][:MAX_TABS]
-        for p in openable:
-            webbrowser.open(ops.paper_link(p) or "")
+        openable = open_links(missing)
         if len(missing) > len(openable):
             warn(f"opened {len(openable)} of {len(missing)}; run it again after `ruru pdf add`")
     if missing and not args.json and not args.quiet:
@@ -536,6 +526,33 @@ def cmd_pdf_missing(args: argparse.Namespace) -> int:
             print("every paper here has its PDF", file=sys.stderr)
         return NO_MATCH
     return OK
+
+
+def cited_papers(lib: Library, project: str) -> tuple[list[Paper], list[str]]:
+    """The library papers the project's claims cite, and the cited keys the library lacks."""
+    cited = ops.cited_keys(lib, project)
+    return [lib.get(k) for k in cited if lib.exists(k)], [k for k in cited if not lib.exists(k)]
+
+
+def fetch_open_access(lib: Library, papers: list[Paper]) -> list[Paper]:
+    """Download the open-access PDF of each paper without one; return those still without."""
+    missing = [p for p in papers if not lib.has_pdf(p.key)]
+    if missing:
+        with client_for(lib) as client:
+            for p in missing:
+                try:
+                    ops.fetch_pdf(lib, client, p.key)
+                except RuruError as e:
+                    print(f"{p.key}: {e}", file=sys.stderr)
+    return [p for p in missing if not lib.has_pdf(p.key)]
+
+
+def open_links(papers: list[Paper]) -> list[Paper]:
+    """Open the DOI (or URL) page of each paper that has one, at most MAX_TABS; return those opened."""
+    openable = [p for p in papers if ops.paper_link(p)][:MAX_TABS]
+    for p in openable:
+        webbrowser.open(ops.paper_link(p) or "")
+    return openable
 
 
 PDF_ACTIONS = ("show", "add", "missing")
@@ -969,10 +986,6 @@ def cmd_check(args: argparse.Namespace) -> int:
     return NO_MATCH if report.issues else OK
 
 
-VERDICT_MARK = {"supported": ("✓", "green"), "partial": ("~", "yellow"), "unsupported": ("✗", "red"),
-                "not-found": ("?", "yellow"), "background": ("·", "dim")}
-
-
 def cmd_claims(args: argparse.Namespace) -> int:
     lib = _open(args)
     project = ops.get_project(lib, args.project)
@@ -989,15 +1002,12 @@ def cmd_claims(args: argparse.Namespace) -> int:
             continue
         selected.append(c)
 
-    def where(c: claimsmod.Claim) -> str:
-        base = next((t.parent for t in project.tex_paths if c.file.is_relative_to(t.parent)), None)
-        return str(c.file.relative_to(base) if base else c.file)
-
     def has_pdf(k: str) -> bool:
         return lib.exists(k) and lib.has_pdf(k)
 
     if args.json:
-        rows = [{"id": c.id, "file": where(c), "line": c.line, "keys": c.keys, "text": c.text,
+        rows = [{"id": c.id, "file": claimsmod.where(c, project.tex_paths), "line": c.line, "keys": c.keys,
+                 "text": c.text,
                  "checks": [{"key": k, "in_library": lib.exists(k), "has_pdf": has_pdf(k),
                              "verdict": v.to_json() if (v := verdicts.get((c.id, k))) else None}
                             for k in c.keys]}
@@ -1011,12 +1021,13 @@ def cmd_claims(args: argparse.Namespace) -> int:
             marks = []
             for k in c.keys:
                 if v := verdicts.get((c.id, k)):
-                    sign, colour = VERDICT_MARK[v.verdict]
+                    sign, colour = claimsmod.MARKS[v.verdict]
                     marks.append(style(f"{sign} {k}", colour))
                 else:
                     why = "" if has_pdf(k) else (" (no PDF)" if lib.exists(k) else " (not in library)")
                     marks.append(f"  {k}{style(why, 'dim')}")
-            print(f"{style(c.id, 'bold')} {where(c)}:{c.line}  {'  '.join(marks)}")
+            place = f"{claimsmod.where(c, project.tex_paths)}:{c.line}"
+            print(f"{style(c.id, 'bold')} {place}  {'  '.join(marks)}")
             print(f"    {c.text}")
         if stale:
             print(f"{len(stale)} verdict(s) on sentences no longer in the tex: "

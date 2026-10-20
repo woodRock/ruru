@@ -126,7 +126,8 @@ library. Every key calls the same code as the CLI, so each action is committed a
 | Inbox | new (unviewed) items are **bold** until the cursor rests on one for a second · `u` mark new/seen · `y` keep (as read) · `n` skip · `l` reading list · `a` accept the agent's suggestion · `t` keep with tags · `p` keep for a project · `o` open URL · `f` fetch |
 | Reviews | new reviews are **bold** and listed first, newest on top · `S` sort: created, title, papers · `y` keep · `n` discard · `o`/`enter` open the web page · `/` filter (words, `t:TAG`) |
 | Reading list, Library | `y` mark read (reading list, or a paper's screen) · `enter` open · `d` PDF (open; else open access; else the publisher page) · `t` tag (`+a -b`) · `s` status · `e` edit your notes in `$EDITOR` · `o` open URL · `x` remove (asks first) · `S` sort: added (newest first; same-day papers by when they were filed), key, year, status, title |
-| Projects | reading list and citation check per project · `c` re-check |
+| Projects | reading list, citation check and claims summary per project · `c` re-check · `m` get the PDFs its claims cite (open access first, then the publisher pages) · `enter` the claims screen |
+| Claims screen | every citing sentence, marked per cited key (`✓` supported, `~` partial, `✗` unsupported, `?` not found, `·` background, `○` unchecked) · `v` record your verdict (asks for the quote, page or note it needs) · `x` drop one · `d` the cited paper's PDF · `e` open the `.tex` at that line in `$EDITOR` · `m` missing PDFs · `a` file the `KEY.pdf` downloads · `/` filter (words, `k:KEY`, `v:VERDICT`, `v:unchecked`) · `escape` back |
 
 In the inbox, `+`, `-` and `~` mark items an agent suggested keeping, skipping or reading later.
 

@@ -537,3 +537,124 @@ def test_reviews_tab_sort(lib, run, tmp_path):
         await pilot.press("S")
         assert app.review_sort == "created" and app.sort == "added"  # the library's sort is untouched
     drive(lib, script)
+
+
+CLAIMS_TEX = r"""\begin{document}
+Alignment is joint \cite{wood2026joint}. Landscapes are rugged \cite{xue2025fitness, ghost2020x}.
+Nothing cited here.
+\end{document}
+"""
+
+
+@pytest.fixture
+def claims_project(lib, run, tmp_path):
+    (tmp_path / "main.tex").write_text(CLAIMS_TEX)
+    run("project", "add", "joint-align", "--path", str(tmp_path), "--bib", "refs.bib", "--tex", "main.tex")
+    (lib / "papers" / "wood2026joint" / "paper.pdf").write_bytes(b"%PDF")
+    return tmp_path
+
+
+def test_claims_helpers(lib, claims_project, monkeypatch):
+    library = Library.open(lib)
+    claims = ops.claims(library, "joint-align")
+    first, second = claims
+    verdicts = {(first.id, "wood2026joint"): tui.claimsmod.make(
+        first, "wood2026joint", "partial", quote="joint for GC-MS", note="only GC-MS", by="claude")}
+    assert tui.claim_marks(first, verdicts) == "~" and tui.claim_marks(second, verdicts) == "○○"
+    assert tui.filter_claims(claims, verdicts, "v:unchecked") == [second]
+    assert tui.filter_claims(claims, verdicts, "k:ghost2020x") == [second]
+    assert tui.filter_claims(claims, verdicts, "v:partial joint") == [first]
+    md = tui.claim_markdown(library, second, verdicts, "main.tex")
+    assert "### main.tex:2" in md and "no PDF" in md and "not in the library" in md
+    md = tui.claim_markdown(library, first, verdicts, "main.tex")
+    assert "**partial** (p. " not in md and "by claude" in md and "> joint for GC-MS" in md
+    text = tui.project_markdown(library, tui.projmod.load(library.settings.projects)["joint-align"],
+                                (claims, verdicts))
+    assert "### Claims (2 sentences citing 3 keys)" in text and "~ partial 1 · ○ unchecked 2" in text
+    assert "**partial** `wood2026joint` main.tex:2: “joint for GC-MS” only GC-MS" in text
+    assert "**No PDF (1):** `xue2025fitness`" in text and "**Not in the library:** `ghost2020x`" in text
+    for editor, expected in [("vim", ["vim", "+7", "/x.tex"]),
+                             ("code --wait", ["code", "--wait", "-g", "/x.tex:7"]),
+                             ("/usr/local/bin/subl", ["/usr/local/bin/subl", "/x.tex:7"])]:
+        monkeypatch.setenv("VISUAL", editor)
+        assert tui.editor_command(tui.Path("/x.tex"), 7) == expected
+
+
+def test_claims_screen(lib, claims_project, monkeypatch, browsed, tmp_path):
+    opened, edited = [], []
+    monkeypatch.setattr(tui, "open_file", opened.append)
+    monkeypatch.setattr(tui, "edit_at", lambda path, line: edited.append((path.name, line)))
+    monkeypatch.setattr(cli, "downloads_dir", lambda: tmp_path / "dl")
+    (tmp_path / "dl").mkdir()
+
+    def no_open_access(library, client, key, force=False):
+        raise tui.RuruError(f"{key}: no open-access PDF known")
+    monkeypatch.setattr(ops, "fetch_pdf", no_open_access)
+
+    async def script(app, pilot):
+        await pilot.press("5")
+        assert "### Claims (2 sentences" in app.query_one("#project-detail")._markdown
+        await pilot.press("enter")
+        screen = app.screen
+        assert isinstance(screen, tui.ClaimsScreen) and screen.project == "joint-align"
+        table = screen.query_one("#claims-table")
+        assert table.row_count == 2 and "0/3 cited keys checked" in screen.sub_title
+        # A verdict on the first claim: one key, has a PDF, so verdict → quote → page.
+        await pilot.press("v")
+        await pilot.press("enter")  # supported (the first choice)
+        await pilot.press(*"joint alignment", "enter")
+        await pilot.press("4", "enter")
+        await pilot.pause()
+        assert "1/3 cited keys checked" in screen.sub_title
+        assert screen.query_one("#claims-detail")._markdown.count("**supported** (p. 4, from pdf") == 1
+        await pilot.press("d", "e")
+        # The second claim cites two keys: choose, then no PDF, so what was read; escape cancels.
+        await pilot.press("j", "v", "enter", "down", "down", "enter", "enter", "escape")
+        assert "1/3" in screen.sub_title
+        await pilot.press("v", "enter", "down", "down", "enter", "down", "enter", *"says the opposite", "enter")
+        await pilot.pause()
+        assert "2/3" in screen.sub_title
+        await pilot.press("x")
+        await pilot.pause()
+        assert "1/3" in screen.sub_title
+        await pilot.press("x")  # nothing left to drop
+        await pilot.press("slash", *"v:unchecked", "enter")
+        assert table.row_count == 1 and "filter: v:unchecked" in screen.sub_title
+        await pilot.press("slash", *"nothing matches", "enter")
+        assert table.row_count == 0 and screen.query_one("#claims-empty").display
+        await pilot.press("v", "x", "d", "e")  # no claim under the cursor: nothing happens
+        await pilot.press("slash", "ctrl+u", "enter", "j")
+        await pilot.press("m")
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        (tmp_path / "dl" / "xue2025fitness.pdf").write_bytes(b"%PDF-1.4")
+        await pilot.press("a")
+        await pilot.pause()
+        await pilot.press("d")
+        await pilot.press("enter")  # xue2025fitness, now with its PDF
+        await pilot.press("escape")
+        assert not isinstance(app.screen, tui.ClaimsScreen)
+    _, notices = drive(lib, script)
+    verdicts = tui.claimsmod.load(lib, "joint-align")
+    assert [(v.key, v.verdict, v.source, v.page, v.quote) for v in verdicts.values()] == [
+        ("wood2026joint", "supported", "pdf", "4", "joint alignment")]
+    log = git_log(lib)
+    assert log[0].startswith("ruru: verdict joint-align drop ")
+    assert log[1:3] == ["ruru: verdict joint-align xue2025fitness:unsupported",
+                        "ruru: verdict joint-align wood2026joint:supported"]
+    assert edited == [("main.tex", 2)] and opened[0].name == "paper.pdf"
+    assert opened[-1].parent.name == "xue2025fitness"
+    assert browsed == ["https://doi.org/10.1186/s13321-021-00544-w"]
+    assert ("warning", "no verdict on this claim yet") in notices
+    assert any("opened 1 publisher page(s)" in m and "not in the library: ghost2020x" in m for _, m in notices)
+    assert ("information", f"filed 1 PDF(s) from {tmp_path / 'dl'}") in notices
+
+
+def test_claims_screen_needs_tex(lib, run, tmp_path):
+    run("project", "add", "notex", "--path", str(tmp_path), "--bib", "refs.bib")
+
+    async def script(app, pilot):
+        await pilot.press("5", "enter")
+        assert not isinstance(app.screen, tui.ClaimsScreen)
+    _, notices = drive(lib, script)
+    assert ("warning", "notex lists no tex files: add it again with --tex") in notices

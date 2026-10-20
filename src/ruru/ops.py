@@ -661,7 +661,13 @@ def cited_keys(lib: Library, name: str) -> list[str]:
 
 def claims(lib: Library, name: str) -> list[claimsmod.Claim]:
     """The project's citing sentences, file by file (main files first, then what they \\input)."""
-    return [c for f in _tex_scan(get_project(lib, name)).files for c in claimsmod.extract(f)]
+    return claims_and_files(lib, name)[0]
+
+
+def claims_and_files(lib: Library, name: str) -> tuple[list[claimsmod.Claim], list[Path]]:
+    """`claims`, and every .tex file read for them (the TUI caches on their mtimes)."""
+    files = _tex_scan(get_project(lib, name)).files
+    return [c for f in files for c in claimsmod.extract(f)], files
 
 
 def record_verdicts(lib: Library, name: str, records: Sequence[dict[str, Any]], *,
