@@ -20,7 +20,7 @@ from typing import Any
 
 from ruru import claims as claimsmod
 from ruru import feeds as feedmod
-from ruru import gitops, model
+from ruru import gitops, model, tomledit
 from ruru import projects as projmod
 from ruru.bibtex import to_bibtex
 from ruru.config import SETTINGS_FILE
@@ -239,6 +239,34 @@ def suggest(lib: Library, item_id_: str, action: str, reason: str, by: str) -> I
 
 
 # --- feed settings -------------------------------------------------------------------------------
+
+OWN_TAG = "own-work"
+
+
+def own_keys(lib: Library) -> set[str]:
+    """Jesse's own work: library papers tagged own-work, and the keys listed in ruru.toml's `own`
+    (drafts and software that aren't in the library). Claims citing them aren't checked."""
+    return set(lib.settings.own) | {p.key for p in lib.papers() if OWN_TAG in p.tags}
+
+
+def set_own(lib: Library, add: Sequence[str] = (), remove: Sequence[str] = ()) -> None:
+    """Mark keys as (not) Jesse's own work: a library paper gets (loses) the own-work tag, any
+    other key goes in (out of) ruru.toml's `own` list."""
+    inside = [k for k in [*add, *remove] if lib.exists(k)]
+    if tagged := [k for k in add if k in inside]:
+        tag(lib, tagged, add=[OWN_TAG])
+    if untagged := [k for k in remove if k in inside]:
+        tag(lib, untagged, remove=[OWN_TAG])
+    listed = [k for k in lib.settings.own if k not in remove]
+    listed += [k for k in add if k not in inside and k not in listed]
+    if listed != lib.settings.own:
+        text = (lib.root / SETTINGS_FILE).read_text(encoding="utf-8")
+        text = tomledit.set_list(text, "own", sorted(listed),
+                                 "Your own drafts and software outside the library: `ruru own add KEY`.")
+        changed = [k for k in [*add, *remove] if k not in inside]
+        _rewrite_settings(lib, text, f"ruru: own {'add' if add else 'remove'} {_summary(changed)}")
+        lib.settings.own = sorted(listed)
+
 
 def _rewrite_settings(lib: Library, text: str, message: str) -> None:
     try:

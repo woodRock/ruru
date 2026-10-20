@@ -127,7 +127,7 @@ library. Every key calls the same code as the CLI, so each action is committed a
 | Reviews | new reviews are **bold** and listed first, newest on top · `S` sort: created, title, papers · `y` keep · `n` discard · `o`/`enter` open the web page · `/` filter (words, `t:TAG`) |
 | Reading list, Library | `y` mark read (reading list, or a paper's screen) · `enter` open · `d` PDF (open; else open access; else the publisher page) · `t` tag (`+a -b`) · `s` status · `e` edit your notes in `$EDITOR` · `o` open URL · `x` remove (asks first) · `S` sort: added (newest first; same-day papers by when they were filed), key, year, status, title |
 | Projects | reading list, citation check and claims summary per project · `c` re-check · `m` get the PDFs its claims cite (open access first, then the publisher pages) · `enter` the claims screen |
-| Claims screen | every citing sentence, marked per cited key (`✓` supported, `~` partial, `✗` unsupported, `?` not found, `·` background, `○` unchecked) · `v` record your verdict (asks for the quote, page or note it needs) · `x` drop one · `d` the cited paper's PDF · `e` open the `.tex` at that line in `$EDITOR` · `m` missing PDFs · `a` file the `KEY.pdf` downloads · `/` filter (words, `k:KEY`, `v:VERDICT`, `v:unchecked`) · `escape` back |
+| Claims screen | every citing sentence, marked per cited key (`✓` supported, `~` partial, `✗` unsupported, `?` not found, `·` background, `○` unchecked, `★` your own work) · `v` record your verdict (asks for the quote, page or note it needs) · `x` drop one · `d` the cited paper's PDF · `e` open the `.tex` at that line in `$EDITOR` · `m` missing PDFs · `a` file the `KEY.pdf` downloads · `/` filter (words, `k:KEY`, `v:VERDICT`, `v:unchecked`, `v:own`) · `escape` back |
 
 In the inbox, `+`, `-` and `~` mark items an agent suggested keeping, skipping or reading later.
 
@@ -215,6 +215,10 @@ says what it rests on: `--from pdf` (default; the paper must have one), `abstrac
 Verdicts live in `claims/<project>.json`, keyed by a hash of the sentence: reword it and the old
 verdict shows as stale.
 
+Your own work needs no checking: `ruru own add wood2022 warpalign` tags library papers `own-work`
+and lists other keys (drafts, software) in ruru.toml's `own`. Claims citing them are marked `★`
+and don't count as unchecked, and `pdf missing --cited` leaves them out.
+
 ## Adding papers and keeping them current
 
 ```bash
@@ -290,13 +294,15 @@ Code permission rule. In `~/.claude/settings.json` (or a project's `.claude/sett
       "Bash(ruru fetch:*)", "Bash(ruru suggest:*)", "Bash(ruru note:*)", "Bash(ruru tag:*)",
       "Bash(ruru skip:*)", "Bash(ruru unskip:*)", "Bash(ruru seen:*)",
       "Bash(ruru review list:*)", "Bash(ruru review show:*)", "Bash(ruru review add:*)",
-      "Bash(ruru pdf missing:*)", "Bash(ruru pdf add:*)", "Bash(ruru claims:*)", "Bash(ruru verdict:*)"
+      "Bash(ruru pdf missing:*)", "Bash(ruru pdf add:*)", "Bash(ruru claims:*)", "Bash(ruru verdict:*)",
+      "Bash(ruru own list:*)"
     ],
     "deny": [
       "Bash(ruru keep:*)", "Bash(ruru later:*)", "Bash(ruru cite:*)", "Bash(ruru rm:*)", "Bash(ruru unkeep:*)",
       "Bash(ruru feeds add:*)", "Bash(ruru feeds remove:*)",
       "Bash(ruru project add:*)", "Bash(ruru project remove:*)",
-      "Bash(ruru review keep:*)", "Bash(ruru review discard:*)"
+      "Bash(ruru review keep:*)", "Bash(ruru review discard:*)",
+      "Bash(ruru own add:*)", "Bash(ruru own remove:*)"
     ]
   }
 }

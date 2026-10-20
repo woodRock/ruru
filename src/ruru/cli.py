@@ -529,8 +529,10 @@ def cmd_pdf_missing(args: argparse.Namespace) -> int:
 
 
 def cited_papers(lib: Library, project: str) -> tuple[list[Paper], list[str]]:
-    """The library papers the project's claims cite, and the cited keys the library lacks."""
-    cited = ops.cited_keys(lib, project)
+    """The library papers the project's claims cite, and the cited keys the library lacks (own work
+    left out: it needs no checking)."""
+    own = ops.own_keys(lib)
+    cited = [k for k in ops.cited_keys(lib, project) if k not in own]
     return [lib.get(k) for k in cited if lib.exists(k)], [k for k in cited if not lib.exists(k)]
 
 
@@ -993,10 +995,11 @@ def cmd_claims(args: argparse.Namespace) -> int:
     verdicts = claimsmod.load(lib.root, args.project)
     current = {(c.id, k) for c in found for k in c.keys}
     stale = [v for k, v in sorted(verdicts.items()) if k not in current]
+    own = ops.own_keys(lib)
     selected = []
     for c in found:
         given = {v.verdict for k in c.keys if (v := verdicts.get((c.id, k)))}
-        checked = sum((c.id, k) in verdicts for k in c.keys)
+        checked = sum((c.id, k) in verdicts or k in own for k in c.keys)
         if ((args.key and not set(args.key) & set(c.keys)) or (args.unchecked and checked == len(c.keys))
                 or (args.verdict and not set(args.verdict) & given)):
             continue
@@ -1008,7 +1011,7 @@ def cmd_claims(args: argparse.Namespace) -> int:
     if args.json:
         rows = [{"id": c.id, "file": claimsmod.where(c, project.tex_paths), "line": c.line, "keys": c.keys,
                  "text": c.text,
-                 "checks": [{"key": k, "in_library": lib.exists(k), "has_pdf": has_pdf(k),
+                 "checks": [{"key": k, "in_library": lib.exists(k), "has_pdf": has_pdf(k), "own": k in own,
                              "verdict": v.to_json() if (v := verdicts.get((c.id, k))) else None}
                             for k in c.keys]}
                 for c in selected]
@@ -1023,6 +1026,8 @@ def cmd_claims(args: argparse.Namespace) -> int:
                 if v := verdicts.get((c.id, k)):
                     sign, colour = claimsmod.MARKS[v.verdict]
                     marks.append(style(f"{sign} {k}", colour))
+                elif k in own:
+                    marks.append(style(f"{claimsmod.OWN} {k} (own)", "dim"))
                 else:
                     why = "" if has_pdf(k) else (" (no PDF)" if lib.exists(k) else " (not in library)")
                     marks.append(f"  {k}{style(why, 'dim')}")
@@ -1066,6 +1071,44 @@ def cmd_verdict(args: argparse.Namespace) -> int:
     made = ops.record_verdicts(lib, args.project, records, by=args.by)
     for v in made:
         print(v.claim if args.quiet else f"{v.claim} {v.key}: {v.verdict}")
+    return OK
+
+
+def cmd_own_list(args: argparse.Namespace) -> int:
+    lib = _open(args)
+    own = sorted(ops.own_keys(lib))
+    if args.json:
+        emit_json([{"key": k, "in_library": lib.exists(k)} for k in own])
+    elif args.quiet:
+        for k in own:
+            print(k)
+    else:
+        for k in own:
+            where = f"library, tagged {ops.OWN_TAG}" if lib.exists(k) else "ruru.toml"
+            print(f"{style(f'{k:<28}', 'bold')} {where}")
+    if not own:
+        if not args.json:
+            print("nothing marked as your own work: `ruru own add KEY`", file=sys.stderr)
+        return NO_MATCH
+    return OK
+
+
+def cmd_own_add(args: argparse.Namespace) -> int:
+    lib = _open(args)
+    ops.set_own(lib, add=args.keys)
+    for k in args.keys:
+        print(k if args.quiet else f"own: {k}" + (f" (tagged {ops.OWN_TAG})" if lib.exists(k) else " (ruru.toml)"))
+    return OK
+
+
+def cmd_own_remove(args: argparse.Namespace) -> int:
+    lib = _open(args)
+    unknown = [k for k in args.keys if k not in ops.own_keys(lib)]
+    if unknown:
+        raise UsageError(f"not marked as your own work: {', '.join(unknown)}")
+    ops.set_own(lib, remove=args.keys)
+    for k in args.keys:
+        print(k if args.quiet else f"no longer own: {k}")
     return OK
 
 
@@ -1465,9 +1508,27 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("-k", "--key", action="append", metavar="KEY",
                    help="only claims citing this key (repeatable)")
     p.add_argument("--unchecked", action="store_true",
-                   help="only claims with a cited key not yet given a verdict")
+                   help="only claims with a cited key not yet given a verdict (own work aside)")
     p.add_argument("--verdict", nargs="+", choices=claimsmod.VERDICTS,
                    help="only claims with one of these verdicts")
+
+    p = command("own", cmd_own_list,
+                "your own papers and software: claims citing them need no verdict",
+                ["ruru own", "ruru own add warpalign alignbench chromadcnn",
+                 "ruru own add wood2022                 (a library paper: tagged own-work)",
+                 "ruru own remove alignbench"],
+                [read])
+    osub = p.add_subparsers(dest="own_command", metavar="ACTION", parser_class=_Parser)
+    for name, func, what in (("list", cmd_own_list, "list your own work"),
+                             ("add", cmd_own_add, "mark keys as your own work (library papers get the "
+                                                  "own-work tag; other keys go in ruru.toml)"),
+                             ("remove", cmd_own_remove, "unmark keys")):
+        op = osub.add_parser(name, help=what, description=what, formatter_class=_Formatter,
+                             epilog=_examples(f"ruru own {name}" + (" warpalign" if name != "list" else "")),
+                             parents=[common, *([read] if name == "list" else [write, quiet])])  # type: ignore[list-item]
+        op.set_defaults(func=func)
+        if name != "list":
+            op.add_argument("keys", nargs="+", metavar="KEY")
 
     p = command("verdict", cmd_verdict,
                 "record whether a cited paper supports a claim (see `ruru claims`); one commit",

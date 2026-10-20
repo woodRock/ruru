@@ -154,6 +154,9 @@ the user config is `~/.config/ruru/config.toml` on macOS too.
   verdict's fields through chained dialogs, `ask`), `m` the missing-PDF worker, `a` files downloads,
   `e` → `edit_at` (`editor_command`: `+LINE` or FILE:LINE). `RuruApp.project_claims` caches
   `ops.claims_and_files` on the .tex files' mtimes.
+- Own work (`ruru own`): `ops.own_keys` = library papers tagged `own-work` + ruru.toml's top-level
+  `own` list (`Settings.own`, written by `tomledit.set_list`); `ops.set_own` tags library keys and
+  lists the rest. Own keys need no verdict (`★`, not unchecked) and `cli.cited_papers` skips them.
 - `ops.rekey`: the only way a key changes; moves the directory (and the git-ignored PDF), commits,
   and reports the projects whose .tex/.bib still use the old key.
 - `skills/ruru/SKILL.md`: the agent-facing workflows and rules. `tests/test_skill_docs.py` checks

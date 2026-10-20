@@ -1,4 +1,4 @@
-"""Small, comment-preserving edits to ruru.toml: append or remove one table.
+"""Small, comment-preserving edits to ruru.toml: append or remove one table, set one top-level list.
 
 ruru.toml is Jesse's file (comments and all), so it is never rewritten wholesale: new tables are
 appended, and removal deletes exactly one table's lines. Every result is re-parsed by the caller.
@@ -58,3 +58,18 @@ def remove_table(text: str, header: str, name: str | None = None) -> str:
             start -= 1
         return "".join(lines[:start] + lines[end:]).rstrip("\n") + "\n"
     raise KeyError(name or header)
+
+
+def set_list(text: str, key: str, values: list[str], comment: str) -> str:
+    """Set the top-level `key = [...]`: its line is replaced where it is, or added (after `comment`)
+    before the first table."""
+    line = f"{key} = {format_value(values)}\n"
+    lines = text.splitlines(keepends=True)
+    first_table = next((i for i, x in enumerate(lines) if _HEADER.match(x)), len(lines))
+    for i, x in enumerate(lines[:first_table]):
+        if re.match(rf"^{re.escape(key)}\s*=", x):
+            return "".join(lines[:i] + [line] + lines[i + 1:])
+    before = "".join(lines[:first_table]).rstrip("\n")
+    after = "".join(lines[first_table:])
+    block = f"# {comment}\n{line}"
+    return (before + "\n\n" if before else "") + block + ("\n" + after if after else "")

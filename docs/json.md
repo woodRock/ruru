@@ -120,6 +120,7 @@ Every front matter field of `paper.md`, in this order, then two derived fields.
     "keys": ["huber"],
     "text": "The first three rounds use Huber weights [@huber] with threshold $1.345\\hat\\sigma$.",
     "checks": [{"key": "huber", "in_library": true, "has_pdf": true,
+                "own": false,             // Jesse's own work (`ruru own`): needs no verdict
                 "verdict": null}]         // or a verdict object
   }],
   "stale": [ … ]                          // verdict objects whose sentence is no longer in the tex
@@ -130,6 +131,7 @@ A verdict object: `claim`, `key`, `verdict` (`supported` \| `partial` \| `unsupp
 `not-found` \| `background`), `source` (`pdf` \| `abstract` \| `other`), `page`, `quote`, `note`
 (string \| null), `by` (string \| null), `date`, and `text` (the claim as it read when judged).
 
+| `ruru own --json` | array of `{"key", "in_library"}`: library papers tagged `own-work` and the keys in ruru.toml's `own`, sorted; `[]` (exit 2) if none |
 | `ruru seen --json` | array of triage records from seen.jsonl, newest first: `id`, `decision` (`keep` \| `skip` \| `later` \| `remove`: `ruru rm`, keyed by the paper's key), `date`, `key` (string \| null), `ids`, `title`, `year`, and `by` and `reason` when an agent decided |
 | `ruru doctor --json` | array of `{"name", "status": "ok" \| "warn" \| "fail", "detail"}`; exit 3 if any failed |
 

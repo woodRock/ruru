@@ -154,6 +154,9 @@ keeps the verdicts (`claims/<project>.json` in the library, one commit per `ruru
 1. `ruru claims PROJECT --unchecked --json`: every sentence of the .tex that cites something, with a
    stable `id`, `file`:`line`, the `text` (cites written `[@key]`) and, per key, `in_library`,
    `has_pdf` and any `verdict`. `-k KEY` narrows it to one paper.
+   Keys marked `own: true` are Jesse's own work (`ruru own`): he knows what they say, so give them
+   no verdict and don't ask for their PDFs; `--unchecked` already leaves them out. Marking work as
+   his own is his call (`ruru own add KEY`): suggest it, don't run it.
 2. **PDFs first.** `ruru pdf missing --cited PROJECT --json` lists the cited papers without one.
    Don't download anything yourself: give Jesse one command to run,
    `ruru pdf missing --cited PROJECT --fetch --open` (it downloads the open-access ones, then opens

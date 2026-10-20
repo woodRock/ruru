@@ -80,8 +80,8 @@ def test_claims_command(proj, run, repo):
     assert [(r["file"], r["line"]) for r in rows] == [("main.tex", 5), ("main.tex", 6), ("main.tex", 9),
                                                       ("main.tex", 11), ("sections/intro.tex", 1)]
     assert rows[2]["checks"] == [
-        {"key": "xue2025fitness", "in_library": True, "has_pdf": False, "verdict": None},
-        {"key": "smith2020missing", "in_library": False, "has_pdf": False, "verdict": None}]
+        {"key": "xue2025fitness", "in_library": True, "has_pdf": False, "own": False, "verdict": None},
+        {"key": "smith2020missing", "in_library": False, "has_pdf": False, "own": False, "verdict": None}]
     assert rows[0]["checks"][0]["has_pdf"]
     r = run("claims", "joint-align")
     assert r.code == 0 and "main.tex:9" in r.out and "smith2020missing (not in library)" in r.out
@@ -165,3 +165,44 @@ def test_pdf_missing_cited(proj, run, monkeypatch):
         _pdf(proj, key)
     monkeypatch.setattr(ops, "fetch_pdf", fetched)
     assert run("pdf", "missing", "--cited", "joint-align", "--fetch").code == cli.NO_MATCH
+
+
+def test_own_work(proj, run, repo):
+    assert run("own").code == cli.NO_MATCH
+    r = run("own", "add", "smith2020missing", "wood2026joint")
+    assert r.code == 0 and r.out == "own: smith2020missing (ruru.toml)\nown: wood2026joint (tagged own-work)\n"
+    text = (proj / "ruru.toml").read_text()
+    assert ('\n# Your own drafts and software outside the library: `ruru own add KEY`.\n'
+            'own = ["smith2020missing"]\n') in text
+    assert text.index("own = ") < text.index("[projects.joint-align]")
+    assert text.startswith("# ruru library settings")
+    assert json.loads(run("show", "wood2026joint", "--json").out)["tags"] == ["own-work"]
+    assert git_log(proj)[:2] == ["ruru: own add smith2020missing", "ruru: tag wood2026joint +own-work"]
+    assert json.loads(run("own", "--json").out) == [{"key": "smith2020missing", "in_library": False},
+                                                   {"key": "wood2026joint", "in_library": True}]
+    assert "wood2026joint                library, tagged own-work" in run("own", "list").out
+    run("own", "add", "zzz2020")  # the list line is replaced in place, sorted
+    assert 'own = ["smith2020missing", "zzz2020"]' in (proj / "ruru.toml").read_text()
+
+    # Claims citing only own work count as checked; their keys don't need PDFs.
+    rows = _claims(run)
+    assert rows[2]["checks"][1]["own"] and not rows[2]["checks"][0]["own"]
+    unchecked = run("claims", "joint-align", "--unchecked", "-q").out.split()
+    assert rows[0]["id"] not in unchecked and rows[2]["id"] in unchecked
+    assert "★ wood2026joint (own)" in run("claims", "joint-align").out
+    r = run("pdf", "missing", "--cited", "joint-align", "-q")
+    assert r.out.split() == ["xue2025fitness"] and "smith2020missing" not in r.err
+
+    assert run("own", "remove", "nope2020").code == cli.USAGE
+    assert run("own", "remove", "wood2026joint", "smith2020missing", "-q").out.split() == [
+        "wood2026joint", "smith2020missing"]
+    assert run("own", "-q").out.split() == ["zzz2020"]
+    assert json.loads(run("show", "wood2026joint", "--json").out)["tags"] == []
+    (proj / "ruru.toml").write_text((proj / "ruru.toml").read_text().replace('own = ["zzz2020"]', 'own = "x"'))
+    assert "own must be a list" in run("own").err
+
+
+def test_set_list_without_tables():
+    from ruru.tomledit import set_list
+    assert set_list("", "own", ["a"], "c") == '# c\nown = ["a"]\n'
+    assert set_list("x = 1\n", "own", [], "c") == 'x = 1\n\n# c\nown = []\n'

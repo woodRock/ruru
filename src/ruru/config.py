@@ -63,6 +63,7 @@ class Settings:
     auto_commit: bool = True
     feeds: list[dict[str, Any]] = field(default_factory=list)
     projects: dict[str, dict[str, Any]] = field(default_factory=dict)
+    own: list[str] = field(default_factory=list)  # keys of Jesse's own work outside the library
 
 
 def load_settings(root: Path) -> Settings:
@@ -80,7 +81,10 @@ def load_settings(root: Path) -> Settings:
         auto_commit=bool(raw.get("auto_commit", True)),
         feeds=list(raw.get("feeds", [])),
         projects=dict(raw.get("projects", {})),
+        own=[str(k) for k in raw.get("own", [])] if isinstance(raw.get("own", []), list) else [],
     )
+    if not isinstance(raw.get("own", []), list):
+        raise UsageError(f"{path}: own must be a list of keys, e.g. own = [\"warpalign\"]")
     if s.bib_encoding not in ("ascii", "utf8"):
         raise UsageError(f"{path}: bib_encoding must be 'ascii' or 'utf8', not {s.bib_encoding!r}")
     return s

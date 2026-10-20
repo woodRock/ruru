@@ -569,10 +569,17 @@ def test_claims_helpers(lib, claims_project, monkeypatch):
     md = tui.claim_markdown(library, first, verdicts, "main.tex")
     assert "**partial** (p. " not in md and "by claude" in md and "> joint for GC-MS" in md
     text = tui.project_markdown(library, tui.projmod.load(library.settings.projects)["joint-align"],
-                                (claims, verdicts))
+                                (claims, verdicts, set()))
     assert "### Claims (2 sentences citing 3 keys)" in text and "~ partial 1 · ○ unchecked 2" in text
     assert "**partial** `wood2026joint` main.tex:2: “joint for GC-MS” only GC-MS" in text
     assert "**No PDF (1):** `xue2025fitness`" in text and "**Not in the library:** `ghost2020x`" in text
+    own = {"ghost2020x"}
+    assert tui.claim_marks(second, verdicts, own) == "○★"
+    assert tui.filter_claims(claims, verdicts, "v:own", own) == [second]
+    assert "*your own work: no verdict needed*" in tui.claim_markdown(library, second, verdicts, "main.tex", own)
+    text = tui.project_markdown(library, tui.projmod.load(library.settings.projects)["joint-align"],
+                                (claims, verdicts, own))
+    assert "○ unchecked 1 · ★ own work 1" in text and "Not in the library" not in text
     for editor, expected in [("vim", ["vim", "+7", "/x.tex"]),
                              ("code --wait", ["code", "--wait", "-g", "/x.tex:7"]),
                              ("/usr/local/bin/subl", ["/usr/local/bin/subl", "/x.tex:7"])]:

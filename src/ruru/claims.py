@@ -34,6 +34,7 @@ SOURCES = ("pdf", "abstract", "other")  # what the verdict rests on
 MARKS = {"supported": ("✓", "green"), "partial": ("~", "yellow"), "unsupported": ("✗", "red"),
          "not-found": ("?", "yellow"), "background": ("·", "dim")}
 UNCHECKED = "○"
+OWN = "★"  # Jesse's own work: needs no verdict
 DIR = "claims"
 
 # Words whose trailing full stop doesn't end a sentence.
