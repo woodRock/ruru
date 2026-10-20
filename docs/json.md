@@ -121,14 +121,20 @@ Every front matter field of `paper.md`, in this order, then two derived fields.
     "text": "The first three rounds use Huber weights [@huber] with threshold $1.345\\hat\\sigma$.",
     "checks": [{"key": "huber", "title": "Robust estimation of a location parameter",  // null if not in the library
                 "in_library": true, "has_pdf": true,
-                "own": false,             // Jesse's own work (`ruru own`): needs no verdict
+                "own": false,             // Jesse's own work (`ruru own`): a label only
+                "kind": "paper",          // paper | draft | software ([cited]) | null (neither)
+                "read": ["/…/papers/huber/paper.pdf"],   // what to check it against: the PDF, a draft's
+                                          // .tex files, software's README/CITATION.cff; [] if nothing yet
+                "version": null,          // draft `tex:<hash>`, software `git:<commit>[-dirty]`: now
+                "state": "unchecked",     // the verdict, unchecked, or outdated
                 "verdict": null}]         // or a verdict object
   }],
   "stale": [ … ]                          // verdict objects whose sentence is no longer in the tex
 }
 ```
 
-`--verdict` filters on a cited key's state: a verdict, `unchecked` or `own`.
+`--verdict` filters on a cited key's state (a verdict, `unchecked`, `outdated`) or `own`.
+`--unchecked` is `--verdict unchecked outdated`.
 
 `ruru claims PROJECT --summary --json` (filters apply first):
 
@@ -136,19 +142,23 @@ Every front matter field of `paper.md`, in this order, then two derived fields.
 {
   "project": "joint-align", "claims": 31, "keys": 21,
   "counts": {"supported": 22, "partial": 0, "unsupported": 0, "not-found": 0, "background": 0,
-             "unchecked": 0, "own": 13},          // over (claim, key) pairs
+             "unchecked": 0, "outdated": 0,       // over (claim, key) pairs
+             "own": 13},                          // pairs citing Jesse's own work (also counted above)
   "problems": [{"claim", "key", "file", "line", "text", "verdict"}],  // unsupported, partial, not-found
-  "no_pdf": ["kovats"],                         // cited, in the library, no PDF (own work aside)
-  "not_in_library": [],                         // own work aside
+  "no_pdf": ["kovats"],                         // cited, in the library, no PDF
+  "not_in_library": [],                         // neither in the library nor a cited draft or software
   "stale": 0                                    // verdicts on sentences no longer in the tex
 }
 ```
 
 A verdict object: `claim`, `key`, `verdict` (`supported` \| `partial` \| `unsupported` \|
 `not-found` \| `background`), `source` (`pdf` \| `abstract` \| `other`), `page`, `quote`, `note`
-(string \| null), `by` (string \| null), `date`, and `text` (the claim as it read when judged).
+(string \| null), `by` (string \| null), `date`, `text` (the claim as it read when judged), and
+`version` (string \| null: the draft's or software's version it was judged on). `source` may also
+be `draft` or `software`.
 
-| `ruru own --json` | array of `{"key", "in_library"}`: library papers tagged `own-work` and the keys in ruru.toml's `own`, sorted; `[]` (exit 2) if none |
+| `ruru own --json` | array of `{"key", "in_library", "kind"}` (`paper` \| `draft` \| `software` \| `unknown`: the old `own` list): library papers tagged `own-work` and every cited draft and software, sorted; `[]` (exit 2) if none |
+| `ruru cited --json` | array of `{"key", "kind", "project", "path", "url", "link" (url, else CITATION.cff's), "version", "read"}` sorted by key; `[]` (exit 2) if none |
 | `ruru seen --json` | array of triage records from seen.jsonl, newest first: `id`, `decision` (`keep` \| `skip` \| `later` \| `remove`: `ruru rm`, keyed by the paper's key), `date`, `key` (string \| null), `ids`, `title`, `year`, and `by` and `reason` when an agent decided |
 | `ruru doctor --json` | array of `{"name", "status": "ok" \| "warn" \| "fail", "detail"}`; exit 3 if any failed |
 

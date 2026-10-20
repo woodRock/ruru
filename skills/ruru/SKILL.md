@@ -155,10 +155,14 @@ keeps the verdicts (`claims/<project>.json` in the library, one commit per `ruru
    problem claims, what lacks a PDF), then `ruru claims PROJECT --unchecked --json`: every sentence of the .tex that cites something, with a
    stable `id`, `file`:`line`, the `text` (cites written `[@key]`) and, per key, `in_library`,
    `has_pdf`, `title` and any `verdict`. `-k KEY` narrows it to one paper; `--verdict STATE…`
-   to keys in a state (a verdict, `unchecked` or `own`).
-   Keys marked `own: true` are Jesse's own work (`ruru own`): he knows what they say, so give them
-   no verdict and don't ask for their PDFs; `--unchecked` already leaves them out. Marking work as
-   his own is his call (`ruru own add KEY`): suggest it, don't run it.
+   to keys in a state (a verdict, `unchecked`, `outdated`, or `own` for Jesse's own work).
+   Each key has a `kind`: `paper` (in the library), `draft` or `software` (in `[cited]`; see
+   `ruru cited --json`), or null (neither). `read` lists what to check it against: the PDF, the
+   draft's .tex files, or the repo's README and CITATION.cff. `own: true` is only a label: check
+   Jesse's own work like anyone else's (a published paper of his against its PDF).
+   `outdated` means the draft or software changed after the verdict: judge it again.
+   A cited key with `kind: null` is neither a library paper nor a cited draft or software. Tell
+   Jesse; `ruru add` (published) and `ruru cited add` (draft, software) are his to run.
 2. **PDFs first.** `ruru pdf missing --cited PROJECT --json` lists the cited papers without one.
    Don't download anything yourself: give Jesse one command to run,
    `ruru pdf missing --cited PROJECT --fetch --open` (it downloads the open-access ones, then opens
@@ -175,7 +179,9 @@ keeps the verdicts (`claims/<project>.json` in the library, one commit per `ruru
    - `not-found`: you read it and couldn't find the passage either way;
    - `background`: a general pointer ("see [x]", software, a dataset), nothing specific to check.
 
-   `--from pdf` (the default) needs the PDF. Without one, either wait for Jesse, or say what the
+   A draft or software verdict needs no `--from` (it is `draft` or `software`, and records the
+   version); give `-p` as `file.tex:LINE` or the README section.
+   `--from pdf` (the default for a library paper) needs the PDF. Without one, either wait for Jesse, or say what the
    verdict rests on with `--from abstract` (abstract only) or `--from other` (a README, a web page);
    never `supported` from memory.
 5. **Never edit the .tex.** Report to Jesse: the `unsupported` and `partial` claims with file:line,

@@ -139,7 +139,7 @@ library. Every key calls the same code as the CLI, so each action is committed a
 | Reviews | new reviews are **bold** and listed first, newest on top · `S` sort: created, title, papers · `y` keep · `n` discard · `o`/`enter` open the web page · `/` filter (words, `t:TAG`) |
 | Reading list, Library | `y` mark read (reading list, or a paper's screen) · `enter` open · `d` PDF (open; else open access; else the publisher page) · `t` tag (`+a -b`) · `s` status · `e` edit your notes in `$EDITOR` · `o` open URL · `x` remove (asks first) · `S` sort: added (newest first; same-day papers by when they were filed), key, year, status, title |
 | Projects | reading list, citation check and claims summary per project · `c` re-check · `m` get the PDFs its claims cite (open access first, then the publisher pages) · `enter` the claims screen |
-| Claims screen | every citing sentence, marked per cited key (`✓` supported, `~` partial, `✗` unsupported, `?` not found, `·` background, `○` unchecked, `★` your own work) · `v` record your verdict (asks for the quote, page or note it needs) · `x` drop one · `d` the cited paper's PDF · `e` open the `.tex` at that line in `$EDITOR` · `m` missing PDFs · `a` file the `KEY.pdf` downloads · `/` filter (words, `k:KEY`, `v:VERDICT`, `v:unchecked`, `v:own`) · `escape` back |
+| Claims screen | every citing sentence, marked per cited key (`✓` supported, `~` partial, `✗` unsupported, `?` not found, `·` background, `○` unchecked, `↻` outdated: its draft or software changed; `★` marks your own work) · `v` record your verdict (asks for the quote, page or note it needs) · `x` drop one · `d` the cited paper's PDF (a draft's .tex, software's README or URL) · `e` open the `.tex` at that line in `$EDITOR` · `m` missing PDFs · `a` file the `KEY.pdf` downloads · `/` filter (words, `k:KEY`, `v:VERDICT`, `v:unchecked`, `v:outdated`, `v:own`) · `escape` back |
 
 In the inbox, `+`, `-` and `~` mark items an agent suggested keeping, skipping or reading later.
 
@@ -228,9 +228,26 @@ says what it rests on: `--from pdf` (default; the paper must have one), `abstrac
 Verdicts live in `claims/<project>.json`, keyed by a hash of the sentence: reword it and the old
 verdict shows as stale.
 
-Your own work needs no checking: `ruru own add wood2022 warpalign` tags library papers `own-work`
-and lists other keys (drafts, software) in ruru.toml's `own`. Claims citing them are marked `★`
-and don't count as unchecked, and `pdf missing --cited` leaves them out.
+### Drafts, software and your own work
+
+The library holds published papers. A paper can also cite a draft or software, which ruru keeps
+in ruru.toml as `[cited.KEY]`, not in the library:
+
+```bash
+ruru cited add chromadcnn --draft chroma-dcnn               # a draft: another ruru project's .tex
+ruru cited add warpalign --software ~/Desktop/warp-align    # software: its repo (README, CITATION.cff)
+ruru cited bib warpalign alignbench                         # BibTeX @misc from each CITATION.cff
+ruru own add wood2022                                       # tag a published paper of yours own-work
+```
+
+Claims citing them are checked like any other: a draft against its current .tex, software against
+its README. The verdict records the version it was given on (a hash of the draft's .tex, the
+repo's commit). When the draft or repo changes, the verdict shows as outdated (`↻`) until it is
+judged again. Your own work (papers tagged `own-work`, and every cited draft and software) is
+marked `★`, but only as a label: it is checked the same way.
+
+For software without a paper, add a `CITATION.cff` to the repo (GitHub then shows "Cite this
+repository"). A Zenodo DOI for each release makes a specific version citable by DOI.
 
 ## Adding papers and keeping them current
 
@@ -308,14 +325,14 @@ Code permission rule. In `~/.claude/settings.json` (or a project's `.claude/sett
       "Bash(ruru skip:*)", "Bash(ruru unskip:*)", "Bash(ruru seen:*)",
       "Bash(ruru review list:*)", "Bash(ruru review show:*)", "Bash(ruru review add:*)",
       "Bash(ruru pdf missing:*)", "Bash(ruru pdf add:*)", "Bash(ruru claims:*)", "Bash(ruru verdict:*)",
-      "Bash(ruru own list:*)"
+      "Bash(ruru own list:*)", "Bash(ruru cited list:*)", "Bash(ruru cited bib:*)"
     ],
     "deny": [
       "Bash(ruru keep:*)", "Bash(ruru later:*)", "Bash(ruru cite:*)", "Bash(ruru rm:*)", "Bash(ruru unkeep:*)",
       "Bash(ruru feeds add:*)", "Bash(ruru feeds remove:*)",
       "Bash(ruru project add:*)", "Bash(ruru project remove:*)",
       "Bash(ruru review keep:*)", "Bash(ruru review discard:*)",
-      "Bash(ruru own add:*)", "Bash(ruru own remove:*)"
+      "Bash(ruru own add:*)", "Bash(ruru own remove:*)", "Bash(ruru cited add:*)", "Bash(ruru cited remove:*)"
     ]
   }
 }

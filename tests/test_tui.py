@@ -554,32 +554,43 @@ def claims_project(lib, run, tmp_path):
     return tmp_path
 
 
-def test_claims_helpers(lib, claims_project, monkeypatch):
+def test_claims_helpers(lib, claims_project, monkeypatch, run, tmp_path):
     library = Library.open(lib)
     claims = ops.claims(library, "joint-align")
     first, second = claims
     verdicts = {(first.id, "wood2026joint"): tui.claimsmod.make(
         first, "wood2026joint", "partial", quote="joint for GC-MS", note="only GC-MS", by="claude")}
-    assert tui.claim_marks(first, verdicts) == "~" and tui.claim_marks(second, verdicts) == "○○"
-    assert tui.filter_claims(claims, verdicts, "v:unchecked") == [second]
-    assert tui.filter_claims(claims, verdicts, "k:ghost2020x") == [second]
-    assert tui.filter_claims(claims, verdicts, "v:partial joint") == [first]
-    md = tui.claim_markdown(library, second, verdicts, "main.tex")
-    assert "### main.tex:2" in md and "no PDF" in md and "not in the library" in md
-    md = tui.claim_markdown(library, first, verdicts, "main.tex")
-    assert "**partial** (p. " not in md and "by claude" in md and "> joint for GC-MS" in md
-    text = tui.project_markdown(library, tui.projmod.load(library.settings.projects)["joint-align"],
-                                (claims, verdicts, set()))
+    view = tui.ClaimsView(claims, verdicts, set(), {}, {})
+    assert tui.claim_marks(first, view) == "~" and tui.claim_marks(second, view) == "○○"
+    assert tui.filter_claims(view, "v:unchecked") == [second]
+    assert tui.filter_claims(view, "k:ghost2020x") == [second]
+    assert tui.filter_claims(view, "v:partial joint") == [first]
+    md = tui.claim_markdown(library, second, view, "main.tex")
+    assert "### main.tex:2" in md and "no PDF" in md and "`ruru add` it, or `ruru cited add`" in md
+    md = tui.claim_markdown(library, first, view, "main.tex")
+    assert "**partial** (from pdf, by claude" in md and "> joint for GC-MS" in md
+    project = tui.projmod.load(library.settings.projects)["joint-align"]
+    text = tui.project_markdown(library, project, view)
     assert "### Claims (2 sentences citing 3 keys)" in text and "~ partial 1 · ○ unchecked 2" in text
     assert "**partial** `wood2026joint` main.tex:2: “joint for GC-MS” only GC-MS" in text
     assert "**No PDF (1):** `xue2025fitness`" in text and "**Not in the library:** `ghost2020x`" in text
-    own = {"ghost2020x"}
-    assert tui.claim_marks(second, verdicts, own) == "○★"
-    assert tui.filter_claims(claims, verdicts, "v:own", own) == [second]
-    assert "*your own work: no verdict needed*" in tui.claim_markdown(library, second, verdicts, "main.tex", own)
-    text = tui.project_markdown(library, tui.projmod.load(library.settings.projects)["joint-align"],
-                                (claims, verdicts, own))
-    assert "○ unchecked 1 · ★ own work 1" in text and "Not in the library" not in text
+
+    # ghost2020x as cited software: own work, checked, and outdated once its repo moves on.
+    run("cited", "add", "ghost2020x", "--software", str(tmp_path / "ghost"), "--url", "https://example.org/g")
+    library = Library.open(lib)
+    view = tui.claims_view(library, "joint-align", claims)
+    assert view.own == {"ghost2020x"} and view.cited["ghost2020x"].kind == "software"
+    assert tui.filter_claims(view, "v:own") == [second]
+    md = tui.claim_markdown(library, second, view, "main.tex")
+    assert "`ghost2020x` — software, `" in md and "★ *your own work*" in md
+    verdicts[(second.id, "ghost2020x")] = tui.claimsmod.make(second, "ghost2020x", "background", source="software",
+                                                             version="git:aaa", has_pdf=False)
+    view = view._replace(verdicts=verdicts, versions={"ghost2020x": "git:bbb"})
+    assert tui.claim_marks(second, view) == "○↻" and tui.filter_claims(view, "v:outdated") == [second]
+    assert "*outdated: the software has changed since this verdict (git:aaa → git:bbb)" in \
+        tui.claim_markdown(library, second, view, "main.tex")
+    text = tui.project_markdown(library, project, view)
+    assert "↻ outdated 1 · ★ citing your work 1" in text and "Not in the library" not in text
     for editor, expected in [("vim", ["vim", "+7", "/x.tex"]),
                              ("code --wait", ["code", "--wait", "-g", "/x.tex:7"]),
                              ("/usr/local/bin/subl", ["/usr/local/bin/subl", "/x.tex:7"])]:
@@ -665,3 +676,35 @@ def test_claims_screen_needs_tex(lib, run, tmp_path):
         assert not isinstance(app.screen, tui.ClaimsScreen)
     _, notices = drive(lib, script)
     assert ("warning", "notex lists no tex files: add it again with --tex") in notices
+
+
+def test_claims_screen_with_cited_work(lib, run, tmp_path, monkeypatch, browsed):
+    opened = []
+    monkeypatch.setattr(tui, "open_file", opened.append)
+    draft = tmp_path / "draft"
+    draft.mkdir()
+    (draft / "d.tex").write_text("\\begin{document}\nWe use 103 samples.\n\\end{document}\n")
+    (tmp_path / "main.tex").write_text("Samples as in \\cite{mydraft}. Built with \\cite{tool}.\n")
+    run("project", "add", "joint-align", "--path", str(tmp_path), "--bib", "refs.bib", "--tex", "main.tex")
+    run("project", "add", "draft", "--path", str(draft), "--bib", "refs.bib", "--tex", "d.tex")
+    run("cited", "add", "mydraft", "--draft", "draft")
+    run("cited", "add", "tool", "--url", "https://example.org/tool")
+
+    async def script(app, pilot):
+        await pilot.press("5")
+        project_list = app.query_one("#project-list")
+        project_list.highlighted = list(tui.projmod.load(app.lib.settings.projects)).index("joint-align")
+        await pilot.pause()
+        await pilot.press("enter")
+        screen = app.screen
+        assert isinstance(screen, tui.ClaimsScreen) and "0/2 cited keys checked" in screen.sub_title
+        await pilot.press("d")  # the draft's .tex
+        # Supported: no "what did you read" question for a draft; "Where" instead of "Page".
+        await pilot.press("v", "enter", *"We use 103 samples.", "enter", *"d.tex:2", "enter")
+        await pilot.pause()
+        assert "1/2 cited keys checked" in screen.sub_title
+        await pilot.press("j", "d")  # software with no local copy: its URL
+    drive(lib, script)
+    assert opened == [draft / "d.tex"] and browsed == ["https://example.org/tool"]
+    (v,) = tui.claimsmod.load(lib, "joint-align").values()
+    assert (v.key, v.source, v.page, v.version[:4]) == ("mydraft", "draft", "d.tex:2", "tex:")

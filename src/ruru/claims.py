@@ -12,6 +12,9 @@ Verdicts:
   unsupported   it doesn't say this: needs a note
   not-found     read it, couldn't find the passage either way
   background    a general attribution ("see [x]"); nothing specific to check
+
+A verdict on a draft or software (see `ruru.cited`) records its version; when the draft's .tex or
+the repo's commit has changed since, the key's state is `outdated` until it is judged again.
 """
 
 from __future__ import annotations
@@ -31,12 +34,14 @@ from ruru.projects import _CITE, strip_comments
 VERDICTS = ("supported", "partial", "unsupported", "not-found", "background")
 NEEDS_QUOTE = {"supported", "partial"}
 NEEDS_NOTE = {"partial", "unsupported"}
-SOURCES = ("pdf", "abstract", "other")  # what the verdict rests on
+SOURCES = ("pdf", "abstract", "draft", "software", "other")  # what the verdict rests on
 MARKS = {"supported": ("✓", "green"), "partial": ("~", "yellow"), "unsupported": ("✗", "red"),
          "not-found": ("?", "yellow"), "background": ("·", "dim")}
 UNCHECKED = "○"
-OWN = "★"  # Jesse's own work: needs no verdict
-STATES = (*VERDICTS, "unchecked", "own")  # what a cited key can be: a verdict, or neither
+OUTDATED = "↻"  # a verdict on a draft or software that has changed since
+OWN = "★"  # Jesse's own work: a label, checked like anything else
+STATES = (*VERDICTS, "unchecked", "outdated")  # what a cited key can be
+FILTERS = (*STATES, "own")  # `own`: the key is Jesse's own work, whatever its state
 PROBLEMS = ("unsupported", "partial", "not-found")
 DIR = "claims"
 
@@ -71,6 +76,7 @@ class Verdict:
     by: str | None
     date: str
     text: str  # the claim's text when the verdict was given
+    version: str | None = None  # draft (`tex:<hash>`) or software (`git:<commit>`) when judged
 
     def to_json(self) -> dict[str, Any]:
         return asdict(self)
@@ -144,33 +150,45 @@ def where(claim: Claim, mains: list[Path]) -> str:
     return str(claim.file.relative_to(base) if base else claim.file)
 
 
-def state(claim: Claim, key: str, verdicts: dict[tuple[str, str], Verdict], own: set[str]) -> str:
-    """A cited key's verdict, else `own` (Jesse's own work: needs none) or `unchecked`."""
+def state(claim: Claim, key: str, verdicts: dict[tuple[str, str], Verdict],
+          versions: dict[str, str | None] | None = None) -> str:
+    """A cited key's verdict; `outdated` if it was given on a version of a draft or software that
+    has changed since (`versions`: key → its current version); else `unchecked`."""
     v = verdicts.get((claim.id, key))
-    return v.verdict if v else "own" if key in own else "unchecked"
+    if v is None:
+        return "unchecked"
+    now = (versions or {}).get(key)
+    return "outdated" if v.version and now and now != v.version else v.verdict
+
+
+def matches(claim: Claim, states: set[str], verdicts: dict[tuple[str, str], Verdict],
+            versions: dict[str, str | None], own: set[str]) -> bool:
+    """Does some cited key have one of `states` (FILTERS: `own` for Jesse's own work)?"""
+    return any(state(claim, k, verdicts, versions) in states or ("own" in states and k in own)
+               for k in claim.keys)
 
 
 @dataclass
 class Summary:
     claims: int
     keys: list[str]  # distinct cited keys, in order of first citation
-    counts: dict[str, int]  # every STATES entry, over (claim, key) pairs
-    no_pdf: list[str]  # in the library without a PDF (own work aside)
-    not_in_library: list[str]  # own work aside
+    counts: dict[str, int]  # every STATES entry over (claim, key) pairs, plus `own`: pairs citing own work
+    no_pdf: list[str]  # in the library without a PDF
+    not_in_library: list[str]  # neither in the library nor a cited draft or software
     problems: list[tuple[Claim, Verdict]] = field(default_factory=list)  # PROBLEMS verdicts
 
 
 def summarise(claims: list[Claim], verdicts: dict[tuple[str, str], Verdict], own: set[str],
-              exists: Callable[[str], bool], has_pdf: Callable[[str], bool]) -> Summary:
+              exists: Callable[[str], bool], has_pdf: Callable[[str], bool],
+              versions: dict[str, str | None] | None = None, cited: set[str] | None = None) -> Summary:
     """What `ruru claims --summary` and the TUI's project pane report."""
     pairs = [(c, k) for c in claims for k in c.keys]
-    states = [state(c, k, verdicts, own) for c, k in pairs]
+    states = [state(c, k, verdicts, versions) for c, k in pairs]
     keys = list(dict.fromkeys(k for _, k in pairs))
-    others = [k for k in keys if k not in own]
+    counts = {name: states.count(name) for name in STATES} | {"own": sum(k in own for _, k in pairs)}
     problems = [(c, v) for c, k in pairs if (v := verdicts.get((c.id, k))) and v.verdict in PROBLEMS]
-    return Summary(len(claims), keys, {name: states.count(name) for name in STATES},
-                   [k for k in others if exists(k) and not has_pdf(k)], [k for k in others if not exists(k)],
-                   problems)
+    return Summary(len(claims), keys, counts, [k for k in keys if exists(k) and not has_pdf(k)],
+                   [k for k in keys if not exists(k) and k not in (cited or set())], problems)
 
 
 # --- verdicts ------------------------------------------------------------------------------------
@@ -194,7 +212,7 @@ def dumps(verdicts: dict[tuple[str, str], Verdict]) -> str:
 
 def make(claim: Claim, key: str, verdict: str, *, source: str = "pdf", page: str | None = None,
          quote: str | None = None, note: str | None = None, by: str | None = None,
-         has_pdf: bool = True, today: date | None = None) -> Verdict:
+         has_pdf: bool = True, today: date | None = None, version: str | None = None) -> Verdict:
     """A checked verdict: the quote and note rules above, and `pdf` only for a paper with one."""
     if key not in claim.keys:
         raise UsageError(f"claim {claim.id} cites {', '.join(claim.keys)}, not {key}")
@@ -212,4 +230,4 @@ def make(claim: Claim, key: str, verdict: str, *, source: str = "pdf", page: str
         raise UsageError(f"{key} has no PDF: read it first (`ruru pdf missing {key} --open`), "
                          "or say what the verdict rests on with --from abstract|other")
     return Verdict(claim.id, key, verdict, source, page, quote, note, by,
-                   (today or date.today()).isoformat(), claim.text)
+                   (today or date.today()).isoformat(), claim.text, version)

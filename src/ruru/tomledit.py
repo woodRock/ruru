@@ -73,3 +73,17 @@ def set_list(text: str, key: str, values: list[str], comment: str) -> str:
     after = "".join(lines[first_table:])
     block = f"# {comment}\n{line}"
     return (before + "\n\n" if before else "") + block + ("\n" + after if after else "")
+
+
+def remove_key(text: str, key: str, comment: str | None = None) -> str:
+    """Remove the top-level `key = …` line (and the `# comment` line right above it, if given)."""
+    lines = text.splitlines(keepends=True)
+    first_table = next((i for i, x in enumerate(lines) if _HEADER.match(x)), len(lines))
+    for i, x in enumerate(lines[:first_table]):
+        if re.match(rf"^{re.escape(key)}\s*=", x):
+            start = i - 1 if comment and i > 0 and lines[i - 1].strip() == f"# {comment}" else i
+            end = i + 1
+            if start > 0 and not lines[start - 1].strip() and end < len(lines) and not lines[end].strip():
+                end += 1  # don't leave two blank lines behind
+            return "".join(lines[:start] + lines[end:])
+    return text

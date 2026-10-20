@@ -9,7 +9,8 @@ Keys: j/k move, / filter, r reload, q quit; tabs 1 Inbox, 2 Library, 3 Projects.
 Inbox: y keep, n skip, l later, a accept the suggestion, t keep with tags, p keep for a project,
 o open URL, f fetch. Library: enter open, t tag, s status, e edit notes, d PDF (fetch/open), o URL.
 Projects: c re-check, m get the missing PDFs its claims cite, enter the claims screen.
-Claims: / filter (k:KEY v:VERDICT v:unchecked v:own), v verdict, x drop it, d PDF, e edit the .tex there,
+Claims: / filter (k:KEY v:STATE: a verdict, unchecked, outdated, own), v verdict, x drop it, d the cited PDF
+(or a draft's .tex, software's README), e edit the .tex there,
 m missing PDFs.
 """
 
@@ -23,7 +24,7 @@ import subprocess
 import webbrowser
 from collections.abc import Callable, Iterator
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any, ClassVar, NamedTuple
 
 from rich.text import Text
 from textual import work
@@ -48,6 +49,7 @@ from textual.widgets import (
 from ruru import claims as claimsmod
 from ruru import cli, logo, ops
 from ruru import projects as projmod
+from ruru.cited import Cited
 from ruru.config import resolve_library
 from ruru.errors import OK, RuruError
 from ruru.inbox import Inbox, Item, read_viewed, write_viewed
@@ -150,25 +152,43 @@ def filter_reviews(reviews: list[Review], text: str) -> list[Review]:
 Verdicts = dict[tuple[str, str], claimsmod.Verdict]
 
 
-def filter_claims(claims: list[claimsmod.Claim], verdicts: Verdicts, text: str,
-                  own: set[str] | None = None) -> list[claimsmod.Claim]:
-    """Words in the sentence; k:KEY cites it; v:VERDICT has it for some key (v:unchecked: a key
-    without one that isn't Jesse's own work; v:own: his own)."""
+class ClaimsView(NamedTuple):
+    """A project's claims with everything needed to show their state."""
+    claims: list[claimsmod.Claim]
+    verdicts: Verdicts
+    own: set[str]
+    versions: dict[str, str | None]  # cited drafts and software: their current version
+    cited: dict[str, Cited]
+
+    def state(self, c: claimsmod.Claim, k: str) -> str:
+        return claimsmod.state(c, k, self.verdicts, self.versions)
+
+
+def claims_view(lib: Library, name: str, claims: list[claimsmod.Claim]) -> ClaimsView:
+    keys = list({k for c in claims for k in c.keys})
+    return ClaimsView(claims, claimsmod.load(lib.root, name), ops.own_keys(lib), ops.cited_versions(lib, keys),
+                      ops.cited_entries(lib))
+
+
+def filter_claims(view: ClaimsView, text: str) -> list[claimsmod.Claim]:
+    """Words in the sentence; k:KEY cites it; v:STATE has a key in that state (a verdict,
+    unchecked, outdated; v:own: Jesse's own work)."""
     fields, words = parse_filter(text)
     folded = [w.lower() for w in words.split()]
-
-    def given(c: claimsmod.Claim) -> set[str]:
-        return {claimsmod.state(c, k, verdicts, own or set()) for k in c.keys}
-    return [c for c in claims
+    return [c for c in view.claims
             if (not fields.get("k") or fields["k"] in c.keys)
-            and (not fields.get("v") or fields["v"] in given(c))
+            and (not fields.get("v")
+                 or claimsmod.matches(c, {fields["v"]}, view.verdicts, view.versions, view.own))
             and all(w in c.text.lower() for w in folded)]
 
 
-def claim_marks(c: claimsmod.Claim, verdicts: Verdicts, own: set[str] | None = None) -> str:
-    marks = {"own": claimsmod.OWN, "unchecked": claimsmod.UNCHECKED}
-    return "".join(marks.get(state) or claimsmod.MARKS[state][0]
-                   for state in (claimsmod.state(c, k, verdicts, own or set()) for k in c.keys))
+def _mark(state: str) -> str:
+    marks = {"unchecked": claimsmod.UNCHECKED, "outdated": claimsmod.OUTDATED}
+    return marks.get(state) or claimsmod.MARKS[state][0]
+
+
+def claim_marks(c: claimsmod.Claim, view: ClaimsView) -> str:
+    return "".join(_mark(view.state(c, k)) for k in c.keys)
 
 
 # --- markdown views ------------------------------------------------------------------------------
@@ -221,37 +241,49 @@ def paper_markdown(p: Paper, has_pdf: bool = False, reviews: list[Review] | None
     return "\n\n".join(line for line in lines if line)
 
 
-def claim_markdown(lib: Library, c: claimsmod.Claim, verdicts: Verdicts, place: str,
-                   own: set[str] | None = None) -> str:
+def _what(lib: Library, k: str, view: ClaimsView) -> str:
+    """How a cited key is described: a paper's title, or the draft/software it is."""
+    if lib.exists(k):
+        return f" — {lib.get(k).title}"
+    entry = view.cited.get(k)
+    if entry is None:
+        return " — *not in the library*"
+    where = f"project `{entry.project}`" if entry.kind == "draft" else f"`{entry.path or entry.link}`"
+    return f" — {entry.kind}, {where}"
+
+
+def claim_markdown(lib: Library, c: claimsmod.Claim, view: ClaimsView, place: str) -> str:
     lines = [f"### {place}:{c.line}", "> " + c.text, f"`{c.id}`"]
     for k in c.keys:
-        title = f" — {lib.get(k).title}" if lib.exists(k) else ""
-        v = verdicts.get((c.id, k))
-        if v is None and k in (own or set()):
-            lines += [f"#### {claimsmod.OWN} `{k}`{title}", "*your own work: no verdict needed*"]
-            continue
+        mine = f" {claimsmod.OWN} *your own work*" if k in view.own else ""
+        state = view.state(c, k)
+        lines.append(f"#### {_mark(state)} `{k}`{_what(lib, k, view)}{mine}")
+        v = view.verdicts.get((c.id, k))
         if v is None:
             why = ("" if lib.has_pdf(k) else " · no PDF (m gets the missing ones)") if lib.exists(k) \
-                else " · not in the library"
-            lines += [f"#### {claimsmod.UNCHECKED} `{k}`{title}", f"*unchecked*{why} · v records a verdict"]
+                else "" if k in view.cited else " · `ruru add` it, or `ruru cited add` a draft or software"
+            lines.append(f"*unchecked*{why} · v records a verdict")
             continue
-        page = f"p. {v.page}, " if v.page else ""
-        lines.append(f"#### {claimsmod.MARKS[v.verdict][0]} `{k}`{title}")
-        lines.append(f"**{v.verdict}** ({page}from {v.source}{', by ' + v.by if v.by else ''}, {v.date})")
+        if state == "outdated":
+            lines.append(f"*outdated: the {view.cited[k].kind} has changed since this verdict "
+                         f"({v.version} → {view.versions.get(k)}); v judges it again*")
+        where = f"{'p. ' if v.source in ('pdf', 'abstract') else ''}{v.page}, " if v.page else ""
+        lines.append(f"**{v.verdict}** ({where}from {v.source}{', by ' + v.by if v.by else ''}, {v.date})")
         lines += [f"> {v.quote}"] if v.quote else []
         lines += [v.note] if v.note else []
     return "\n\n".join(lines)
 
 
-def claims_summary(lib: Library, project: projmod.Project, claims: list[claimsmod.Claim],
-                   verdicts: Verdicts, own: set[str]) -> list[str]:
+def claims_summary(lib: Library, project: projmod.Project, view: ClaimsView) -> list[str]:
     """The project pane's Claims section: counts, the problems in full, what's left and why."""
-    summary = claimsmod.summarise(claims, verdicts, own, lib.exists, lib.has_pdf)
+    summary = claimsmod.summarise(view.claims, view.verdicts, view.own, lib.exists, lib.has_pdf, view.versions,
+                                  set(view.cited))
     n = summary.counts
     lines = [f"### Claims ({summary.claims} sentences citing {len(summary.keys)} keys)",
              " · ".join([f"{claimsmod.MARKS[v][0]} {v} {n[v]}" for v in claimsmod.VERDICTS if n[v]]
                         + [f"{claimsmod.UNCHECKED} unchecked {n['unchecked']}"]
-                        + ([f"{claimsmod.OWN} own work {n['own']}"] if n["own"] else []))]
+                        + ([f"{claimsmod.OUTDATED} outdated {n['outdated']}"] if n["outdated"] else [])
+                        + ([f"{claimsmod.OWN} citing your work {n['own']}"] if n["own"] else []))]
     for c, v in summary.problems:
         detail = " ".join(x for x in (f"“{v.quote}”" if v.quote else "", v.note or "") if x)
         lines.append(f"- {claimsmod.MARKS[v.verdict][0]} **{v.verdict}** `{v.key}` "
@@ -265,8 +297,7 @@ def claims_summary(lib: Library, project: projmod.Project, claims: list[claimsmo
     return lines
 
 
-def project_markdown(lib: Library, project: projmod.Project,
-                     claims: tuple[list[claimsmod.Claim], Verdicts, set[str]] | None = None) -> str:
+def project_markdown(lib: Library, project: projmod.Project, claims: ClaimsView | None = None) -> str:
     papers = [p for p in lib.papers() if project.name in p.projects]
     order = {s: i for i, s in enumerate(STATUSES)}
     lines = [f"## {project.name}",
@@ -293,7 +324,7 @@ def project_markdown(lib: Library, project: projmod.Project,
     lines += [f"**Duplicate:** `{a}` = `{b}`" for a, b in report.duplicates]
     lines += [f"*{w}*" for w in report.warnings]
     if claims is not None:
-        lines += claims_summary(lib, project, *claims)
+        lines += claims_summary(lib, project, claims)
     return "\n\n".join(lines)
 
 
@@ -409,7 +440,7 @@ class ClaimsScreen(Screen[None]):
         Binding("slash", "filter", "filter"),
         Binding("v", "verdict", "verdict"),
         Binding("x", "drop", "drop verdict"),
-        Binding("d", "pdf", "PDF"),
+        Binding("d", "pdf", "PDF / source"),
         Binding("e", "edit", "edit .tex"),
         Binding("m", "app.missing_pdfs", "missing PDFs"),
         Binding("a", "add_pdfs", "file downloads"),
@@ -420,8 +451,7 @@ class ClaimsScreen(Screen[None]):
         self.project = project
         self.filter = ""
         self.rows: dict[str, claimsmod.Claim] = {}
-        self.verdicts: Verdicts = {}
-        self.own: set[str] = set()
+        self.view = ClaimsView([], {}, set(), {}, {})
         self.mains: list[Path] = []
         self._timer: Timer | None = None
 
@@ -434,7 +464,7 @@ class ClaimsScreen(Screen[None]):
     def compose(self) -> ComposeResult:
         yield Header()
         yield Input(id="claims-filter",
-                    placeholder="filter: words, k:KEY v:VERDICT v:unchecked v:own (enter to apply)")
+                    placeholder="filter: words, k:KEY v:VERDICT v:unchecked v:outdated v:own (enter)")
         with Horizontal(classes="pane"):
             yield Table(id="claims-table", cursor_type="row", zebra_stripes=True)
             with VerticalScroll(classes="detail"):
@@ -455,17 +485,16 @@ class ClaimsScreen(Screen[None]):
         except RuruError as e:
             app.notify(str(e), severity="error", timeout=8)
             return
-        self.verdicts = claimsmod.load(app.lib.root, self.project)
-        self.own = ops.own_keys(app.lib)
-        shown = filter_claims(claims, self.verdicts, self.filter, self.own)
+        self.view = claims_view(app.lib, self.project, claims)
+        shown = filter_claims(self.view, self.filter)
         self.rows = {}
         for c in shown:
             self.rows.setdefault(f"{c.id}@{c.file}:{c.line}", c)
         self.query_one(Table).refill([
-            (key, [claim_marks(c, self.verdicts, self.own), f"{claimsmod.where(c, self.mains)}:{c.line}",
+            (key, [claim_marks(c, self.view), f"{claimsmod.where(c, self.mains)}:{c.line}",
                    " ".join(c.keys), c.text]) for key, c in self.rows.items()])
-        checked = sum((c.id, k) in self.verdicts for c in claims for k in c.keys if k not in self.own)
-        total = sum(k not in self.own for c in claims for k in c.keys)
+        checked = sum(self.view.state(c, k) not in ("unchecked", "outdated") for c in claims for k in c.keys)
+        total = sum(len(c.keys) for c in claims)
         self.sub_title = (f"{self.project}: {len(shown)} of {len(claims)} claims · {checked}/{total} cited keys "
                           "checked" + (f" · filter: {self.filter}" if self.filter else ""))
         self.show_claim()
@@ -482,7 +511,7 @@ class ClaimsScreen(Screen[None]):
             empty.update(logo.rich_text(logo.SMALL, "No claims match." if self.filter else "No citing sentences.",
                                         "/ changes the filter." if self.filter else "Cite something in the .tex."))
         else:
-            md.update(claim_markdown(self.ruru.lib, c, self.verdicts, claimsmod.where(c, self.mains), self.own))
+            md.update(claim_markdown(self.ruru.lib, c, self.view, claimsmod.where(c, self.mains)))
         empty.display = c is None
         md.display = c is not None
 
@@ -543,7 +572,8 @@ class ClaimsScreen(Screen[None]):
 
         def judge(k: str) -> None:
             has_pdf = lib.exists(k) and lib.has_pdf(k)
-            old = self.verdicts.get((c.id, k))
+            entry = self.view.cited.get(k)  # a draft or software: the source is known, no PDF to ask about
+            old = self.view.verdicts.get((c.id, k))
 
             def was(field: str) -> str:
                 return str(getattr(old, field, None) or "")
@@ -551,11 +581,12 @@ class ClaimsScreen(Screen[None]):
                 ("verdict", lambda a: Choose(f"Does {k} support this sentence?", list(claimsmod.VERDICTS)),
                  lambda a: True),
                 ("from", lambda a: Choose(f"{k} has no PDF here. What did you read?", ["abstract", "other"]),
-                 lambda a: not has_pdf),
+                 lambda a: not has_pdf and entry is None),
                 ("quote", lambda a: Prompt(f"{k}'s own words, verbatim:", value=was("quote")),
                  lambda a: a["verdict"] in claimsmod.NEEDS_QUOTE),
-                ("page", lambda a: Prompt("Page (optional):", value=was("page")),
-                 lambda a: has_pdf and a["verdict"] in claimsmod.NEEDS_QUOTE),
+                ("page", lambda a: Prompt("Page (optional):" if entry is None else
+                                          "Where: file and line, or section (optional):", value=was("page")),
+                 lambda a: (has_pdf or entry is not None) and a["verdict"] in claimsmod.NEEDS_QUOTE),
                 ("note", lambda a: Prompt("What does the paper say instead?", value=was("note")),
                  lambda a: a["verdict"] in claimsmod.NEEDS_NOTE),
             ]
@@ -570,7 +601,7 @@ class ClaimsScreen(Screen[None]):
         c = self.current()
         if c is None:
             return
-        judged = [k for k in c.keys if (c.id, k) in self.verdicts]
+        judged = [k for k in c.keys if (c.id, k) in self.view.verdicts]
         if not judged:
             self.app.notify("no verdict on this claim yet", severity="warning")
             return
@@ -584,18 +615,28 @@ class ClaimsScreen(Screen[None]):
         if c is None:
             return
         app = self.ruru
-        known = [k for k in c.keys if app.lib.exists(k)]
+        known = [k for k in c.keys if app.lib.exists(k) or k in self.view.cited]
         if not known:
             app.notify(f"not in the library: {', '.join(c.keys)}", severity="warning")
             return
 
         def show(k: str) -> None:
-            if app.lib.has_pdf(k):
+            """A paper's PDF (else open access, else its publisher); a draft's .tex or software's README."""
+            if not app.lib.exists(k):
+                sources = ops.cited_sources(app.lib, k)
+                link = self.view.cited[k].link
+                if sources:
+                    open_file(sources[0])
+                elif link:
+                    webbrowser.open(link)
+                else:
+                    app.notify(f"{k}: nothing to open (no .tex, README or URL)", severity="warning")
+            elif app.lib.has_pdf(k):
                 open_file(app.lib.paper_dir(k) / "paper.pdf")
             else:
                 app.notify(f"looking for an open-access PDF of {k}…")
                 app.fetch_pdf(k)
-        self.pick_key(known, "Which paper's PDF?", show)
+        self.pick_key(known, "Which cited work?", show)
 
     def action_edit(self) -> None:
         c = self.current()
@@ -869,8 +910,7 @@ class RuruApp(App[None]):
                 claims = None
                 if project.tex:
                     with contextlib.suppress(RuruError, OSError):
-                        claims = (self.project_claims(project.name), claimsmod.load(self.lib.root, project.name),
-                                  ops.own_keys(self.lib))
+                        claims = claims_view(self.lib, project.name, self.project_claims(project.name))
                 self._detail("project", project_markdown(self.lib, project, claims))
             else:
                 self._detail("project", None, "No projects yet.",
