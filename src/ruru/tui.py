@@ -29,6 +29,7 @@ from rich.text import Text
 from textual import work
 from textual.app import App, ComposeResult, SuspendNotSupported
 from textual.binding import Binding, BindingType
+from textual.css.query import NoMatches
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen, Screen
 from textual.timer import Timer
@@ -149,12 +150,6 @@ def filter_reviews(reviews: list[Review], text: str) -> list[Review]:
 Verdicts = dict[tuple[str, str], claimsmod.Verdict]
 
 
-def _state(c: claimsmod.Claim, k: str, verdicts: Verdicts, own: set[str]) -> str:
-    """A cited key's verdict, else `own` (Jesse's own work) or `unchecked`."""
-    v = verdicts.get((c.id, k))
-    return v.verdict if v else "own" if k in own else "unchecked"
-
-
 def filter_claims(claims: list[claimsmod.Claim], verdicts: Verdicts, text: str,
                   own: set[str] | None = None) -> list[claimsmod.Claim]:
     """Words in the sentence; k:KEY cites it; v:VERDICT has it for some key (v:unchecked: a key
@@ -163,7 +158,7 @@ def filter_claims(claims: list[claimsmod.Claim], verdicts: Verdicts, text: str,
     folded = [w.lower() for w in words.split()]
 
     def given(c: claimsmod.Claim) -> set[str]:
-        return {_state(c, k, verdicts, own or set()) for k in c.keys}
+        return {claimsmod.state(c, k, verdicts, own or set()) for k in c.keys}
     return [c for c in claims
             if (not fields.get("k") or fields["k"] in c.keys)
             and (not fields.get("v") or fields["v"] in given(c))
@@ -173,7 +168,7 @@ def filter_claims(claims: list[claimsmod.Claim], verdicts: Verdicts, text: str,
 def claim_marks(c: claimsmod.Claim, verdicts: Verdicts, own: set[str] | None = None) -> str:
     marks = {"own": claimsmod.OWN, "unchecked": claimsmod.UNCHECKED}
     return "".join(marks.get(state) or claimsmod.MARKS[state][0]
-                   for state in (_state(c, k, verdicts, own or set()) for k in c.keys))
+                   for state in (claimsmod.state(c, k, verdicts, own or set()) for k in c.keys))
 
 
 # --- markdown views ------------------------------------------------------------------------------
@@ -251,29 +246,21 @@ def claim_markdown(lib: Library, c: claimsmod.Claim, verdicts: Verdicts, place: 
 def claims_summary(lib: Library, project: projmod.Project, claims: list[claimsmod.Claim],
                    verdicts: Verdicts, own: set[str]) -> list[str]:
     """The project pane's Claims section: counts, the problems in full, what's left and why."""
-    pairs = [(c, k) for c in claims for k in c.keys]
-    counts = {name: sum(1 for c, k in pairs if (v := verdicts.get((c.id, k))) and v.verdict == name)
-              for name in claimsmod.VERDICTS}
-    unchecked = sum(1 for c, k in pairs if _state(c, k, verdicts, own) == "unchecked")
-    mine = sum(1 for c, k in pairs if _state(c, k, verdicts, own) == "own")
-    keys = list(dict.fromkeys(k for _, k in pairs))
-    others = [k for k in keys if k not in own]
-    no_pdf = [k for k in others if lib.exists(k) and not lib.has_pdf(k)]
-    unknown = [k for k in others if not lib.exists(k)]
-    lines = [f"### Claims ({len(claims)} sentences citing {len(keys)} keys)",
-             " · ".join([f"{claimsmod.MARKS[n][0]} {n} {counts[n]}" for n in claimsmod.VERDICTS if counts[n]]
-                        + [f"{claimsmod.UNCHECKED} unchecked {unchecked}"]
-                        + ([f"{claimsmod.OWN} own work {mine}"] if mine else []))]
-    for c, k in pairs:
-        v = verdicts.get((c.id, k))
-        if v and v.verdict in ("unsupported", "partial", "not-found"):
-            detail = " ".join(x for x in (f"“{v.quote}”" if v.quote else "", v.note or "") if x)
-            lines.append(f"- {claimsmod.MARKS[v.verdict][0]} **{v.verdict}** `{k}` "
-                         f"{claimsmod.where(c, project.tex_paths)}:{c.line}: {detail}".rstrip(": "))
-    if no_pdf:
-        lines.append(f"**No PDF ({len(no_pdf)}):** " + ", ".join(f"`{k}`" for k in no_pdf) + " · m gets them")
-    if unknown:
-        lines.append("**Not in the library:** " + ", ".join(f"`{k}`" for k in unknown))
+    summary = claimsmod.summarise(claims, verdicts, own, lib.exists, lib.has_pdf)
+    n = summary.counts
+    lines = [f"### Claims ({summary.claims} sentences citing {len(summary.keys)} keys)",
+             " · ".join([f"{claimsmod.MARKS[v][0]} {v} {n[v]}" for v in claimsmod.VERDICTS if n[v]]
+                        + [f"{claimsmod.UNCHECKED} unchecked {n['unchecked']}"]
+                        + ([f"{claimsmod.OWN} own work {n['own']}"] if n["own"] else []))]
+    for c, v in summary.problems:
+        detail = " ".join(x for x in (f"“{v.quote}”" if v.quote else "", v.note or "") if x)
+        lines.append(f"- {claimsmod.MARKS[v.verdict][0]} **{v.verdict}** `{v.key}` "
+                     f"{claimsmod.where(c, project.tex_paths)}:{c.line}: {detail}".rstrip(": "))
+    if summary.no_pdf:
+        lines.append(f"**No PDF ({len(summary.no_pdf)}):** " + ", ".join(f"`{k}`" for k in summary.no_pdf)
+                     + " · m gets them")
+    if summary.not_in_library:
+        lines.append("**Not in the library:** " + ", ".join(f"`{k}`" for k in summary.not_in_library))
     lines.append("*enter: every claim, with its verdicts*")
     return lines
 
@@ -503,7 +490,11 @@ class ClaimsScreen(Screen[None]):
         event.stop()
         if self._timer:
             self._timer.stop()
-        self._timer = self.set_timer(DETAIL_SECONDS, self.show_claim)
+        self._timer = self.set_timer(DETAIL_SECONDS, self._settled)
+
+    def _settled(self) -> None:
+        with contextlib.suppress(NoMatches):  # the screen may be closing
+            self.show_claim()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         event.stop()
@@ -885,12 +876,18 @@ class RuruApp(App[None]):
                 self._detail("project", None, "No projects yet.",
                              "ruru project add NAME --path … --bib … --tex …")
 
+    def _settled(self, pane: str) -> None:
+        """The cursor has settled: render its pane, unless the app has started closing (the timer can
+        fire after the widgets are gone)."""
+        with contextlib.suppress(NoMatches):
+            self.show_details(pane)
+
     def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
         """Holding j fires this per row: render the pane once the cursor settles, not for every row."""
         if self._detail_timer:
             self._detail_timer.stop()
         pane = str(event.data_table.id).removesuffix("-table")
-        self._detail_timer = self.set_timer(DETAIL_SECONDS, lambda: self.show_details(pane))
+        self._detail_timer = self.set_timer(DETAIL_SECONDS, lambda: self._settled(pane))
         if event.data_table.id == "inbox-table":
             self.start_view_timer()
 

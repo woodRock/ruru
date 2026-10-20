@@ -19,7 +19,8 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from dataclasses import asdict, dataclass
+from collections.abc import Callable
+from dataclasses import asdict, dataclass, field
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -35,6 +36,8 @@ MARKS = {"supported": ("✓", "green"), "partial": ("~", "yellow"), "unsupported
          "not-found": ("?", "yellow"), "background": ("·", "dim")}
 UNCHECKED = "○"
 OWN = "★"  # Jesse's own work: needs no verdict
+STATES = (*VERDICTS, "unchecked", "own")  # what a cited key can be: a verdict, or neither
+PROBLEMS = ("unsupported", "partial", "not-found")
 DIR = "claims"
 
 # Words whose trailing full stop doesn't end a sentence.
@@ -139,6 +142,35 @@ def where(claim: Claim, mains: list[Path]) -> str:
     """The claim's file, relative to the directory of the main .tex it belongs under."""
     base = next((m.parent for m in mains if claim.file.is_relative_to(m.parent)), None)
     return str(claim.file.relative_to(base) if base else claim.file)
+
+
+def state(claim: Claim, key: str, verdicts: dict[tuple[str, str], Verdict], own: set[str]) -> str:
+    """A cited key's verdict, else `own` (Jesse's own work: needs none) or `unchecked`."""
+    v = verdicts.get((claim.id, key))
+    return v.verdict if v else "own" if key in own else "unchecked"
+
+
+@dataclass
+class Summary:
+    claims: int
+    keys: list[str]  # distinct cited keys, in order of first citation
+    counts: dict[str, int]  # every STATES entry, over (claim, key) pairs
+    no_pdf: list[str]  # in the library without a PDF (own work aside)
+    not_in_library: list[str]  # own work aside
+    problems: list[tuple[Claim, Verdict]] = field(default_factory=list)  # PROBLEMS verdicts
+
+
+def summarise(claims: list[Claim], verdicts: dict[tuple[str, str], Verdict], own: set[str],
+              exists: Callable[[str], bool], has_pdf: Callable[[str], bool]) -> Summary:
+    """What `ruru claims --summary` and the TUI's project pane report."""
+    pairs = [(c, k) for c in claims for k in c.keys]
+    states = [state(c, k, verdicts, own) for c, k in pairs]
+    keys = list(dict.fromkeys(k for _, k in pairs))
+    others = [k for k in keys if k not in own]
+    problems = [(c, v) for c, k in pairs if (v := verdicts.get((c.id, k))) and v.verdict in PROBLEMS]
+    return Summary(len(claims), keys, {name: states.count(name) for name in STATES},
+                   [k for k in others if exists(k) and not has_pdf(k)], [k for k in others if not exists(k)],
+                   problems)
 
 
 # --- verdicts ------------------------------------------------------------------------------------

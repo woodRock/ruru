@@ -119,11 +119,28 @@ Every front matter field of `paper.md`, in this order, then two derived fields.
     "line": 150,                          // of the first cite in the sentence
     "keys": ["huber"],
     "text": "The first three rounds use Huber weights [@huber] with threshold $1.345\\hat\\sigma$.",
-    "checks": [{"key": "huber", "in_library": true, "has_pdf": true,
+    "checks": [{"key": "huber", "title": "Robust estimation of a location parameter",  // null if not in the library
+                "in_library": true, "has_pdf": true,
                 "own": false,             // Jesse's own work (`ruru own`): needs no verdict
                 "verdict": null}]         // or a verdict object
   }],
   "stale": [ … ]                          // verdict objects whose sentence is no longer in the tex
+}
+```
+
+`--verdict` filters on a cited key's state: a verdict, `unchecked` or `own`.
+
+`ruru claims PROJECT --summary --json` (filters apply first):
+
+```json
+{
+  "project": "joint-align", "claims": 31, "keys": 21,
+  "counts": {"supported": 22, "partial": 0, "unsupported": 0, "not-found": 0, "background": 0,
+             "unchecked": 0, "own": 13},          // over (claim, key) pairs
+  "problems": [{"claim", "key", "file", "line", "text", "verdict"}],  // unsupported, partial, not-found
+  "no_pdf": ["kovats"],                         // cited, in the library, no PDF (own work aside)
+  "not_in_library": [],                         // own work aside
+  "stale": 0                                    // verdicts on sentences no longer in the tex
 }
 ```
 

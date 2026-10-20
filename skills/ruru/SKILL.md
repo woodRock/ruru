@@ -151,9 +151,11 @@ discards it. `ruru review add` refuses a paper that isn't on the reading list or
 Does each cited paper say what the sentence citing it claims? You read; ruru lists the claims and
 keeps the verdicts (`claims/<project>.json` in the library, one commit per `ruru verdict`).
 
-1. `ruru claims PROJECT --unchecked --json`: every sentence of the .tex that cites something, with a
+1. `ruru claims PROJECT --summary --json` for where things stand (counts per verdict, the
+   problem claims, what lacks a PDF), then `ruru claims PROJECT --unchecked --json`: every sentence of the .tex that cites something, with a
    stable `id`, `file`:`line`, the `text` (cites written `[@key]`) and, per key, `in_library`,
-   `has_pdf` and any `verdict`. `-k KEY` narrows it to one paper.
+   `has_pdf`, `title` and any `verdict`. `-k KEY` narrows it to one paper; `--verdict STATE…`
+   to keys in a state (a verdict, `unchecked` or `own`).
    Keys marked `own: true` are Jesse's own work (`ruru own`): he knows what they say, so give them
    no verdict and don't ask for their PDFs; `--unchecked` already leaves them out. Marking work as
    his own is his call (`ruru own add KEY`): suggest it, don't run it.

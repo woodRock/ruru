@@ -207,6 +207,7 @@ ruru claims joint-align                         # every citing sentence, with an
 ruru pdf missing --cited joint-align --fetch --open   # download open access, open the rest's DOI pages
 ruru verdict joint-align 3fa9c2e1b0 huber supported -p 75 --quote "…"
 ruru claims joint-align --verdict unsupported partial
+ruru claims joint-align --summary               # counts, problem claims, missing PDFs (--json for agents)
 ```
 
 A verdict is `supported` (needs a verbatim `--quote`), `partial` (a quote and a `--note`),

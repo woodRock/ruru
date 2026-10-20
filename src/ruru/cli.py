@@ -998,20 +998,22 @@ def cmd_claims(args: argparse.Namespace) -> int:
     own = ops.own_keys(lib)
     selected = []
     for c in found:
-        given = {v.verdict for k in c.keys if (v := verdicts.get((c.id, k)))}
-        checked = sum((c.id, k) in verdicts or k in own for k in c.keys)
-        if ((args.key and not set(args.key) & set(c.keys)) or (args.unchecked and checked == len(c.keys))
-                or (args.verdict and not set(args.verdict) & given)):
+        states = {claimsmod.state(c, k, verdicts, own) for k in c.keys}
+        if ((args.key and not set(args.key) & set(c.keys)) or (args.unchecked and "unchecked" not in states)
+                or (args.verdict and not set(args.verdict) & states)):
             continue
         selected.append(c)
 
     def has_pdf(k: str) -> bool:
         return lib.exists(k) and lib.has_pdf(k)
 
-    if args.json:
+    if args.summary:
+        _print_claims_summary(lib, args, project, selected, verdicts, own, stale)
+    elif args.json:
         rows = [{"id": c.id, "file": claimsmod.where(c, project.tex_paths), "line": c.line, "keys": c.keys,
                  "text": c.text,
-                 "checks": [{"key": k, "in_library": lib.exists(k), "has_pdf": has_pdf(k), "own": k in own,
+                 "checks": [{"key": k, "title": lib.get(k).title if lib.exists(k) else None,
+                             "in_library": lib.exists(k), "has_pdf": has_pdf(k), "own": k in own,
                              "verdict": v.to_json() if (v := verdicts.get((c.id, k))) else None}
                             for k in c.keys]}
                 for c in selected]
@@ -1042,6 +1044,39 @@ def cmd_claims(args: argparse.Namespace) -> int:
             print("no claims match", file=sys.stderr)
         return NO_MATCH
     return OK
+
+
+def _print_claims_summary(lib: Library, args: argparse.Namespace, project: projmod.Project,
+                          claims: list[claimsmod.Claim], verdicts: dict[tuple[str, str], claimsmod.Verdict],
+                          own: set[str], stale: list[claimsmod.Verdict]) -> None:
+    summary = claimsmod.summarise(claims, verdicts, own, lib.exists, lambda k: lib.has_pdf(k))
+    problems = [{"claim": c.id, "key": v.key, "file": claimsmod.where(c, project.tex_paths), "line": c.line,
+                 "text": c.text, "verdict": v.to_json()} for c, v in summary.problems]
+    if args.json:
+        emit_json({"project": args.project, "claims": summary.claims, "keys": len(summary.keys),
+                   "counts": summary.counts, "problems": problems, "no_pdf": summary.no_pdf,
+                   "not_in_library": summary.not_in_library, "stale": len(stale)})
+        return
+    if args.quiet:  # the claims that need attention
+        for claim_id in dict.fromkeys(p["claim"] for p in problems):
+            print(claim_id)
+        return
+    print(f"{args.project}: {summary.claims} claims citing {len(summary.keys)} keys")
+    signs = {**claimsmod.MARKS, "unchecked": (claimsmod.UNCHECKED, "bold"), "own": (claimsmod.OWN, "dim")}
+    for name in claimsmod.STATES:
+        if summary.counts[name]:
+            print(f"  {style(signs[name][0], signs[name][1])} {name:<12} {summary.counts[name]}")
+    for c, v in summary.problems:
+        sign, colour = claimsmod.MARKS[v.verdict]
+        detail = " ".join(x for x in (f"\u201c{v.quote}\u201d" if v.quote else "", v.note or "") if x)
+        print(f"{style(sign + ' ' + v.verdict, colour)} {v.key} {claimsmod.where(c, project.tex_paths)}:{c.line} "
+              f"({c.id})" + (f"\n    {detail}" if detail else ""))
+    if summary.no_pdf:
+        print(_keys_line("no PDF", summary.no_pdf, f"ruru pdf missing --cited {args.project} --fetch --open"))
+    if summary.not_in_library:
+        print(_keys_line("not in the library", summary.not_in_library, "ruru add ID, or ruru own add KEY"))
+    if stale:
+        print(f"{len(stale)} stale verdict(s): `ruru claims {args.project} --json` lists them", file=sys.stderr)
 
 
 def cmd_verdict(args: argparse.Namespace) -> int:
@@ -1502,15 +1537,19 @@ def build_parser() -> argparse.ArgumentParser:
     p = command("claims", cmd_claims,
                 "the sentences a project's .tex cites papers in, with any verdicts on them",
                 ["ruru claims joint-align", "ruru claims joint-align --unchecked --json",
-                 "ruru claims joint-align -k huber", "ruru claims joint-align --verdict unsupported partial"],
+                 "ruru claims joint-align -k huber", "ruru claims joint-align --verdict unsupported partial",
+                 "ruru claims joint-align --verdict own", "ruru claims joint-align --summary --json"],
                 [read])
     p.add_argument("project")
     p.add_argument("-k", "--key", action="append", metavar="KEY",
                    help="only claims citing this key (repeatable)")
     p.add_argument("--unchecked", action="store_true",
                    help="only claims with a cited key not yet given a verdict (own work aside)")
-    p.add_argument("--verdict", nargs="+", choices=claimsmod.VERDICTS,
-                   help="only claims with one of these verdicts")
+    p.add_argument("--verdict", nargs="+", choices=claimsmod.STATES, metavar="VERDICT",
+                   help=f"only claims with a cited key in one of these states: {' | '.join(claimsmod.STATES)}")
+    p.add_argument("--summary", action="store_true",
+                   help="counts per verdict, the unsupported/partial/not-found claims, what lacks a PDF "
+                        "(-q: the ids of claims needing attention)")
 
     p = command("own", cmd_own_list,
                 "your own papers and software: claims citing them need no verdict",

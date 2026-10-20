@@ -80,8 +80,10 @@ def test_claims_command(proj, run, repo):
     assert [(r["file"], r["line"]) for r in rows] == [("main.tex", 5), ("main.tex", 6), ("main.tex", 9),
                                                       ("main.tex", 11), ("sections/intro.tex", 1)]
     assert rows[2]["checks"] == [
-        {"key": "xue2025fitness", "in_library": True, "has_pdf": False, "own": False, "verdict": None},
-        {"key": "smith2020missing", "in_library": False, "has_pdf": False, "own": False, "verdict": None}]
+        {"key": "xue2025fitness", "title": "Fitness landscapes", "in_library": True, "has_pdf": False,
+         "own": False, "verdict": None},
+        {"key": "smith2020missing", "title": None, "in_library": False, "has_pdf": False, "own": False,
+         "verdict": None}]
     assert rows[0]["checks"][0]["has_pdf"]
     r = run("claims", "joint-align")
     assert r.code == 0 and "main.tex:9" in r.out and "smith2020missing (not in library)" in r.out
@@ -206,3 +208,28 @@ def test_set_list_without_tables():
     from ruru.tomledit import set_list
     assert set_list("", "own", ["a"], "c") == '# c\nown = ["a"]\n'
     assert set_list("x = 1\n", "own", [], "c") == 'x = 1\n\n# c\nown = []\n'
+
+
+def test_summary_and_states(proj, run, repo):
+    _pdf(proj, "wood2026joint")
+    rows = _claims(run)
+    run("own", "add", "smith2020missing")
+    run("verdict", "joint-align", rows[1]["id"], "xue2025fitness", "unsupported", "--from", "abstract",
+        "--note", "about landscapes, not alignment")
+    run("verdict", "joint-align", rows[0]["id"], "wood2026joint", "supported", "--quote", "fatty acids")
+    out = json.loads(run("claims", "joint-align", "--summary", "--json").out)
+    assert out["claims"] == 5 and out["keys"] == 3 and out["stale"] == 0
+    assert out["counts"] == {"supported": 1, "partial": 0, "unsupported": 1, "not-found": 0, "background": 0,
+                             "unchecked": 3, "own": 1}
+    assert [(p["claim"], p["key"], p["file"], p["line"]) for p in out["problems"]] == [
+        (rows[1]["id"], "xue2025fitness", "main.tex", 6)]
+    assert out["no_pdf"] == ["xue2025fitness"] and out["not_in_library"] == []
+    r = run("claims", "joint-align", "--summary")
+    assert "5 claims citing 3 keys" in r.out and "unchecked    3" in r.out and "own          1" in r.out
+    assert f"✗ unsupported xue2025fitness main.tex:6 ({rows[1]['id']})\n    about landscapes" in r.out
+    assert "no PDF (1): xue2025fitness" in r.out
+    assert run("claims", "joint-align", "--summary", "-q").out.split() == [rows[1]["id"]]
+    assert run("claims", "joint-align", "--verdict", "own", "-q").out.split() == [rows[2]["id"]]
+    assert run("claims", "joint-align", "--verdict", "unchecked", "-q").out.split() == \
+        run("claims", "joint-align", "--unchecked", "-q").out.split()
+    assert run("claims", "joint-align", "--verdict", "maybe").code == cli.USAGE
