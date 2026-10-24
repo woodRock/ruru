@@ -9,10 +9,6 @@ from __future__ import annotations
 import re
 import unicodedata
 
-import bibtexparser
-from bibtexparser.bparser import BibTexParser
-from bibtexparser.customization import convert_to_unicode
-
 from ruru.model import Paper, norm_id
 from ruru.text import display_name, split_name
 
@@ -141,6 +137,10 @@ _AND = re.compile(r"\s+and\s+")
 
 def parse_bibtex(text: str) -> list[tuple[str, Paper]]:
     """(original key, Paper without a key) for every entry, in file order."""
+    import bibtexparser  # imported here: it costs ~20 ms that most commands never need
+    from bibtexparser.bparser import BibTexParser
+    from bibtexparser.customization import convert_to_unicode
+
     parser = BibTexParser(common_strings=True)
     parser.customization = convert_to_unicode
     parser.ignore_nonstandard_types = False

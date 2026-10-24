@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+from pathlib import Path
 
 import pytest
 
@@ -9,11 +10,14 @@ pytest.importorskip("textual")
 
 from conftest import git_log
 from httpfix import FEEDS
-from ruru import cli, model, ops, tui
-from ruru.errors import LockHeld
+from ruru import claims as claimsmod
+from ruru import cli, desktop, http, model, ops, tui
+from ruru import projects as projmod
+from ruru.errors import LockHeld, RuruError, UsageError
 from ruru.inbox import Inbox, read_seen, read_viewed
 from ruru.library import Library
 from ruru.reviews import Reviews
+from ruru.tui import app as tui_app
 
 pytestmark = pytest.mark.tui
 SIZE = (140, 40)
@@ -160,9 +164,9 @@ def test_filter(lib):
 
 
 def test_library_paper_screen_actions(lib, monkeypatch):
-    monkeypatch.setattr(cli, "edit_text", lambda text: "Edited in the TUI.")
+    monkeypatch.setattr(desktop, "edit_text", lambda text: "Edited in the TUI.")
     opened = []
-    monkeypatch.setattr(tui.webbrowser, "open", opened.append)
+    monkeypatch.setattr(desktop.webbrowser, "open", opened.append)
 
     async def script(app, pilot):
         await pilot.press("2")
@@ -189,11 +193,11 @@ def test_library_paper_screen_actions(lib, monkeypatch):
 
 
 def test_edit_notes_unchanged_and_editor_failure(lib, monkeypatch):
-    monkeypatch.setattr(cli, "edit_text", lambda text: text)
+    monkeypatch.setattr(desktop, "edit_text", lambda text: text)
 
     async def script(app, pilot):
         await pilot.press("2", "e")
-        monkeypatch.setattr(cli, "edit_text", lambda text: (_ for _ in ()).throw(cli.UsageError("editor failed")))
+        monkeypatch.setattr(desktop, "edit_text", lambda text: (_ for _ in ()).throw(UsageError("editor failed")))
         await pilot.press("e")
     _, notices = drive(lib, script)
     assert not git_log(lib)[0].startswith("ruru: notes")
@@ -202,7 +206,7 @@ def test_edit_notes_unchanged_and_editor_failure(lib, monkeypatch):
 
 def test_pdf_open_and_fetch(lib, net, monkeypatch):
     ran = []
-    monkeypatch.setattr(tui, "open_file", ran.append)
+    monkeypatch.setattr(desktop, "open_file", ran.append)
     net.add(r"jcheminf\.biomedcentral\.com/track/pdf/", body=b"%PDF-1.4 test")
     (lib / "papers" / "wood2026joint" / "paper.pdf").write_bytes(b"%PDF")
 
@@ -226,7 +230,7 @@ def test_pdf_fetch_failure(lib, monkeypatch):
         await app.workers.wait_for_complete()
     # The paper has no DOI, so ruru looks it up by title, which finds nothing.
     from httpfix import Router
-    monkeypatch.setattr(tui.cli.http, "default_transport", Router().add("title.search", body='{"results": []}'))
+    monkeypatch.setattr(http, "default_transport", Router().add("title.search", body='{"results": []}'))
     _, notices = drive(lib, script)
     assert any(s == "error" and "no work titled" in m for s, m in notices)
 
@@ -238,7 +242,7 @@ def test_pdf_without_open_access_opens_the_publisher(lib, monkeypatch, browsed, 
         await pilot.press("d")
         await app.workers.wait_for_complete()
     from httpfix import Router  # no open-access copy: OpenAlex has no pdf_url, the DOI page is a paywall
-    monkeypatch.setattr(tui.cli.http, "default_transport", Router().add(".", status=404))
+    monkeypatch.setattr(http, "default_transport", Router().add(".", status=404))
     _, notices = drive(lib, script)
     assert browsed == ["https://doi.org/10.1186/s13321-021-00544-w"] and clipboard == ["xue2025fitness.pdf"]
     assert any(s == "warning" and "save it as xue2025fitness.pdf" in m for s, m in notices)
@@ -249,7 +253,9 @@ def test_fetch_reports_new_items_and_failures(lib, net, monkeypatch):
     for path in (lib / "inbox").glob("*/*.md"):
         path.unlink()
     (lib / ".ruru" / "feeds.json").unlink()
-    monkeypatch.setattr(model, "today", lambda: __import__("datetime").date(2026, 10, 17))
+    import datetime
+    monkeypatch.setattr(model, "today", lambda: datetime.date(2026, 10, 17))
+    monkeypatch.setattr(model, "now", lambda: datetime.datetime(2026, 10, 17, 12, 0))
     net.routes.insert(0, Router().add(r"authorships", status=503).routes[0])
 
     async def script(app, pilot):
@@ -272,11 +278,11 @@ def test_projects_tab(lib, run, tmp_path):
         assert app.tab == "projects"
         await pilot.press("c")
     _, notices = drive(lib, script)
-    projects = tui.projmod.load(Library.open(lib).settings.projects)
+    projects = projmod.load(Library.open(lib).settings.projects)
     text = tui.project_markdown(Library.open(lib), projects["joint-align"])
     assert "Reading list (1)" in text and "`missing2020x`" in text and "1 cited keys" not in text
     assert "*No tex files configured.*" in tui.project_markdown(
-        Library.open(lib), tui.projmod.load(Library.open(lib).settings.projects)["notex"])
+        Library.open(lib), projmod.load(Library.open(lib).settings.projects)["notex"])
     assert ("information", "checked") in notices
 
 
@@ -390,7 +396,7 @@ def test_library_sort_and_no_project(lib, run, tmp_path):
 
 
 def test_new_items_are_bold_until_viewed(lib, run, monkeypatch):
-    monkeypatch.setattr(tui, "VIEW_SECONDS", 0.3)
+    monkeypatch.setattr(tui_app, "VIEW_SECONDS", 0.3)
     first, second = inbox_ids(lib)[:2]
 
     def bold(app, item_id):
@@ -558,7 +564,7 @@ def test_claims_helpers(lib, claims_project, monkeypatch, run, tmp_path):
     library = Library.open(lib)
     claims = ops.claims(library, "joint-align")
     first, second = claims
-    verdicts = {(first.id, "wood2026joint"): tui.claimsmod.make(
+    verdicts = {(first.id, "wood2026joint"): claimsmod.make(
         first, "wood2026joint", "partial", quote="joint for GC-MS", note="only GC-MS", by="claude")}
     view = tui.ClaimsView(claims, verdicts, set(), {}, {})
     assert tui.claim_marks(first, view) == "~" and tui.claim_marks(second, view) == "○○"
@@ -569,7 +575,7 @@ def test_claims_helpers(lib, claims_project, monkeypatch, run, tmp_path):
     assert "### main.tex:2" in md and "no PDF" in md and "`ruru add` it, or `ruru cited add`" in md
     md = tui.claim_markdown(library, first, view, "main.tex")
     assert "**partial** (from pdf, by claude" in md and "> joint for GC-MS" in md
-    project = tui.projmod.load(library.settings.projects)["joint-align"]
+    project = projmod.load(library.settings.projects)["joint-align"]
     text = tui.project_markdown(library, project, view)
     assert "### Claims (2 sentences citing 3 keys)" in text and "~ partial 1 · ○ unchecked 2" in text
     assert "**partial** `wood2026joint` main.tex:2: “joint for GC-MS” only GC-MS" in text
@@ -583,7 +589,7 @@ def test_claims_helpers(lib, claims_project, monkeypatch, run, tmp_path):
     assert tui.filter_claims(view, "v:own") == [second]
     md = tui.claim_markdown(library, second, view, "main.tex")
     assert "`ghost2020x` — software, `" in md and "★ *your own work*" in md
-    verdicts[(second.id, "ghost2020x")] = tui.claimsmod.make(second, "ghost2020x", "background", source="software",
+    verdicts[(second.id, "ghost2020x")] = claimsmod.make(second, "ghost2020x", "background", source="software",
                                                              version="git:aaa", has_pdf=False)
     view = view._replace(verdicts=verdicts, versions={"ghost2020x": "git:bbb"})
     assert tui.claim_marks(second, view) == "○↻" and tui.filter_claims(view, "v:outdated") == [second]
@@ -595,18 +601,18 @@ def test_claims_helpers(lib, claims_project, monkeypatch, run, tmp_path):
                              ("code --wait", ["code", "--wait", "-g", "/x.tex:7"]),
                              ("/usr/local/bin/subl", ["/usr/local/bin/subl", "/x.tex:7"])]:
         monkeypatch.setenv("VISUAL", editor)
-        assert tui.editor_command(tui.Path("/x.tex"), 7) == expected
+        assert desktop.editor_command(Path("/x.tex"), 7) == expected
 
 
 def test_claims_screen(lib, claims_project, monkeypatch, browsed, tmp_path):
     opened, edited = [], []
-    monkeypatch.setattr(tui, "open_file", opened.append)
-    monkeypatch.setattr(tui, "edit_at", lambda path, line: edited.append((path.name, line)))
-    monkeypatch.setattr(cli, "downloads_dir", lambda: tmp_path / "dl")
+    monkeypatch.setattr(desktop, "open_file", opened.append)
+    monkeypatch.setattr(desktop, "edit_at", lambda path, line: edited.append((path.name, line)))
+    monkeypatch.setattr(desktop, "downloads_dir", lambda: tmp_path / "dl")
     (tmp_path / "dl").mkdir()
 
     def no_open_access(library, client, key, force=False):
-        raise tui.RuruError(f"{key}: no open-access PDF known")
+        raise RuruError(f"{key}: no open-access PDF known")
     monkeypatch.setattr(ops, "fetch_pdf", no_open_access)
 
     async def script(app, pilot):
@@ -653,7 +659,7 @@ def test_claims_screen(lib, claims_project, monkeypatch, browsed, tmp_path):
         await pilot.press("escape")
         assert not isinstance(app.screen, tui.ClaimsScreen)
     _, notices = drive(lib, script)
-    verdicts = tui.claimsmod.load(lib, "joint-align")
+    verdicts = claimsmod.load(lib, "joint-align")
     assert [(v.key, v.verdict, v.source, v.page, v.quote) for v in verdicts.values()] == [
         ("wood2026joint", "supported", "pdf", "4", "joint alignment")]
     log = git_log(lib)
@@ -680,7 +686,7 @@ def test_claims_screen_needs_tex(lib, run, tmp_path):
 
 def test_claims_screen_with_cited_work(lib, run, tmp_path, monkeypatch, browsed):
     opened = []
-    monkeypatch.setattr(tui, "open_file", opened.append)
+    monkeypatch.setattr(desktop, "open_file", opened.append)
     draft = tmp_path / "draft"
     draft.mkdir()
     (draft / "d.tex").write_text("\\begin{document}\nWe use 103 samples.\n\\end{document}\n")
@@ -693,7 +699,7 @@ def test_claims_screen_with_cited_work(lib, run, tmp_path, monkeypatch, browsed)
     async def script(app, pilot):
         await pilot.press("5")
         project_list = app.query_one("#project-list")
-        project_list.highlighted = list(tui.projmod.load(app.lib.settings.projects)).index("joint-align")
+        project_list.highlighted = list(projmod.load(app.lib.settings.projects)).index("joint-align")
         await pilot.pause()
         await pilot.press("enter")
         screen = app.screen
@@ -706,5 +712,73 @@ def test_claims_screen_with_cited_work(lib, run, tmp_path, monkeypatch, browsed)
         await pilot.press("j", "d")  # software with no local copy: its URL
     drive(lib, script)
     assert opened == [draft / "d.tex"] and browsed == ["https://example.org/tool"]
-    (v,) = tui.claimsmod.load(lib, "joint-align").values()
+    (v,) = claimsmod.load(lib, "joint-align").values()
     assert (v.key, v.source, v.page, v.version[:4]) == ("mydraft", "draft", "d.tex:2", "tex:")
+
+
+# --- relevance -----------------------------------------------------------------------------------
+
+def _rankable(lib, run):
+    """Enough papers to rank against, and two inbox items far apart in relevance and in time."""
+    from datetime import datetime
+
+    from test_similar import CHROMATOGRAPHY, add_paper, write_item
+    for path in (lib / "inbox").glob("*/*.md"):
+        path.unlink()
+    for title, abstract, authors, year in CHROMATOGRAPHY:
+        add_paper(run, title, abstract, authors, year)
+    write_item(lib, "near", "Aligning gas chromatography peaks by retention time",
+               "A warping method for retention time alignment of chromatography peaks.",
+               fetched=datetime(2026, 10, 18, 8, 0, 0))
+    write_item(lib, "far", "Quantum dots for photovoltaic cells", "Efficiency of quantum dot solar cells.",
+               fetched=datetime(2026, 10, 21, 8, 0, 0))
+
+
+def test_inbox_is_ranked_and_s_switches_to_date_order(lib, run):
+    _rankable(lib, run)
+
+    async def script(app, pilot):
+        assert app.inbox_sort == "relevance" and [i.id for i in app.items] == ["near", "far"]
+        assert app.scores["near"].score > 0.2 and app.scores["far"].score == 0.0
+        table = app.query_one("#inbox-table")
+        first = [str(c) for c in table.get_row_at(0)]
+        assert first[1] == f"{app.scores['near'].score:.2f}" and "Aligning" in first[-1]
+        assert "Inbox (2, 2 new)" in str(app.query_one("#tabs").get_tab("inbox").label)
+        await pilot.pause(tui.DETAIL_SECONDS * 2)
+        assert "**Match" in app._shown["inbox"][0]
+        await pilot.press("S")
+        assert app.inbox_sort == "date" and [i.id for i in app.items] == ["far", "near"]
+        assert "by date" in str(app.query_one("#tabs").get_tab("inbox").label)
+        await pilot.press("S")
+        assert app.inbox_sort == "relevance" and [i.id for i in app.items] == ["near", "far"]
+        assert "by" not in str(app.query_one("#tabs").get_tab("inbox").label)
+    _, notices = drive(lib, script)
+    assert ("information", "sorted by date") in notices
+
+
+def test_the_configured_inbox_order_is_the_starting_one(lib, run):
+    _rankable(lib, run)
+    toml = (lib / "ruru.toml").read_text()
+    (lib / "ruru.toml").write_text(toml.replace('inbox_sort = "relevance"', 'inbox_sort = "date"'))
+
+    async def script(app, pilot):
+        assert app.inbox_sort == "date" and [i.id for i in app.items] == ["far", "near"]
+        assert "by" not in str(app.query_one("#tabs").get_tab("inbox").label)  # it is the configured one
+    drive(lib, script)
+
+
+def test_a_possible_duplicate_is_marked(lib, run):
+    from test_similar import CHROMATOGRAPHY, write_item
+    _rankable(lib, run)
+    title, abstract, authors, year = CHROMATOGRAPHY[0]
+    write_item(lib, "twin", "A retitled " + title, abstract, authors=authors, year=year)
+
+    async def script(app, pilot):
+        assert app.dups == {"twin": next(iter(app.dups.values()))}
+        table = app.query_one("#inbox-table")
+        row = next(i for i, item in enumerate(app.items) if item.id == "twin")
+        assert "≈" in str(table.get_row_at(row)[0])
+        table.move_cursor(row=row)
+        await pilot.pause(tui.DETAIL_SECONDS * 2)
+        assert "Possible duplicate" in app._shown["inbox"][0]
+    drive(lib, script)

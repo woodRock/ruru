@@ -37,6 +37,15 @@ _NOTES_RE = re.compile(r"^## Notes[ \t]*$", re.M)
 _AGENT_RE = re.compile(r"^## Agent notes[ \t]*$", re.M)
 
 
+# libyaml's loader gives identical results about ten times faster; the pure-Python one is the fallback.
+_LOADER: Any = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+
+
+def load_yaml(text: str) -> Any:
+    """Parse front matter (what `yaml.safe_load` does, but fast when libyaml is there)."""
+    return yaml.load(text, Loader=_LOADER)
+
+
 def today() -> date:
     return date.today()
 
@@ -124,7 +133,7 @@ def loads(text: str) -> Paper:
     end = text.find("\n---\n", 3)
     if end < 0:
         raise FrontMatterError("unterminated front matter block")
-    fm = yaml.safe_load(text[4:end + 1]) or {}
+    fm = load_yaml(text[4:end + 1]) or {}
     if not isinstance(fm, dict):
         raise FrontMatterError("front matter must be a mapping")
     return from_front_matter(fm, text[end + 5:])

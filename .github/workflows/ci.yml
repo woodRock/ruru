@@ -92,5 +92,6 @@ jobs:
         working-directory: /tmp
         run: |
           /tmp/venv/bin/python -c "import ruru.cli, sys; print(ruru.__version__); assert 'textual' not in sys.modules"
+          /tmp/venv/bin/ruru schema > /dev/null  # every command module is in the package
           /tmp/venv/bin/ruru --help
           /tmp/venv/bin/ruru tui || test $? -eq 1  # exits 1 with install instructions (steps run under bash -e)

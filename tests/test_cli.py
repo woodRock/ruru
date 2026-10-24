@@ -51,3 +51,33 @@ def test_tui_without_textual(monkeypatch, capsys):
 def test_core_never_imports_textual():
     code = "import sys, ruru.cli; ruru.cli.build_parser(); assert 'textual' not in sys.modules"
     subprocess.run([sys.executable, "-c", code], check=True)
+
+
+def test_a_closed_pipe_is_not_an_error(monkeypatch):
+    """`ruru list | head -1`: the reader leaves early; ruru exits quietly with success, with stdout
+    pointed at /dev/null so that the exit-time flush doesn't fail too."""
+    import os
+
+    def boom(args):
+        raise BrokenPipeError()
+    redirected = []
+    monkeypatch.setattr(os, "dup2", lambda src, dst: redirected.append(dst))  # (not onto pytest's capture file)
+    monkeypatch.setattr(sys.stdout, "fileno", lambda: 99, raising=False)
+    assert cli.dispatch(argparse.Namespace(func=boom)) == cli.OK
+    assert redirected == [99]
+
+
+def test_dispatch_turns_errors_into_exit_codes(capsys):
+    import argparse
+
+    from ruru.errors import NothingMatched, UsageError
+
+    def raises(exc):
+        def func(args):
+            raise exc
+        return argparse.Namespace(func=func)
+    assert cli.dispatch(raises(UsageError("bad"))) == cli.USAGE
+    assert cli.dispatch(raises(NothingMatched("none"))) == cli.NO_MATCH
+    assert cli.dispatch(raises(FileNotFoundError(2, "No such file", "x.md"))) == cli.USAGE
+    err = capsys.readouterr().err
+    assert "ruru: error: bad" in err and "ruru: none" in err and "No such file: x.md" in err

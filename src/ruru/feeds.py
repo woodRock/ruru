@@ -19,8 +19,6 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-import feedparser
-
 from ruru import tomledit
 from ruru.errors import UsageError
 from ruru.http import Client, HttpError
@@ -191,6 +189,8 @@ def _rss_stub(e: Any) -> Paper:
 
 
 def _rss(client: Client, feed: Feed, since: date, limit: int) -> list[Candidate]:
+    import feedparser  # lazy: ~15 ms that only feed fetches need
+
     d = feedparser.parse(client.get_text(feed.url or "", what=f"feed {feed.name}"))
     if not d.get("version"):
         raise HttpError(f"{feed.url}: not an RSS or Atom feed (blocked, or moved?)")

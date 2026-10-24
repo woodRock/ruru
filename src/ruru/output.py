@@ -11,6 +11,7 @@ from typing import Any, TextIO
 
 from ruru.inbox import Item, read_viewed
 from ruru.model import Paper
+from ruru.rank import Relevance
 
 _CODES = {"bold": "1", "dim": "2", "cyan": "36", "green": "32", "yellow": "33", "red": "31"}
 
@@ -58,20 +59,32 @@ def paper_line(p: Paper) -> str:
     return f"{key} {p.year or '----'}  {status} {p.title}  {tags}".rstrip()
 
 
-def item_json(item: Item, root: Path, viewed: set[str] | None = None) -> dict[str, Any]:
+def rank_fields(rel: Relevance | None, duplicate_of: str | None) -> dict[str, Any]:
+    """The ranking keys of an inbox item object: always present, null/empty when not ranked."""
+    base: dict[str, Any] = rel.to_json() if rel else {"relevance": None, "similar_to": []}
+    return base | {"possible_duplicate_of": duplicate_of}
+
+
+def item_json(item: Item, root: Path, viewed: set[str] | None = None,
+              extra: dict[str, Any] | None = None) -> dict[str, Any]:
     out = {k: _iso(v) for k, v in item.front_matter().items()}
     out.setdefault("tags", [])  # stable keys: the file leaves empty tags out
     if out.get("suggestion"):
         out["suggestion"] = {k: _iso(v) for k, v in out["suggestion"].items()}
     out["path"] = str(item.path.relative_to(root)) if item.path else None
     out["viewed"] = item.id in (read_viewed(root) if viewed is None else viewed)
-    return out
+    return out | (extra if extra is not None else rank_fields(None, None))
 
 
-def item_line(item: Item) -> str:
+def item_line(item: Item, rel: Relevance | None = None, duplicate_of: str | None = None) -> str:
     p = item.paper
     feed = style(f"[{p.source.removeprefix('feed:')}]", "dim")
-    line = f"{style(f'{item.id:<32}', 'bold')} {p.year or '----'}  {p.title}  {feed}"
+    score = style(f"{rel.score:4.2f} ", "cyan") if rel else ""
+    line = f"{score}{style(f'{item.id:<32}', 'bold')} {p.year or '----'}  {p.title}  {feed}"
+    if rel and rel.similar:
+        line += "  " + style(f"~ {rel.similar[0][0]}", "dim")
+    if duplicate_of:
+        line += "  " + style(f"≈ duplicate of {duplicate_of}?", "yellow")
     if s := item.suggestion:
         line += "  " + style(f"→ {s.get('action')}: {s.get('reason')}", "yellow")
     return line

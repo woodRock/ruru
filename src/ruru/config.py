@@ -18,6 +18,7 @@ from ruru.errors import UsageError
 
 DEFAULT_LIBRARY = "~/papers"
 SETTINGS_FILE = "ruru.toml"
+INBOX_SORTS = ("relevance", "date")  # the first is the default
 
 
 def config_path() -> Path:
@@ -61,6 +62,7 @@ class Settings:
     contact_email: str = ""
     bib_encoding: str = "ascii"
     auto_commit: bool = True
+    inbox_sort: str = "relevance"  # or "date"; `ruru inbox --sort` overrides it
     feeds: list[dict[str, Any]] = field(default_factory=list)
     projects: dict[str, dict[str, Any]] = field(default_factory=dict)
     own: list[str] = field(default_factory=list)  # legacy (before [cited]): own-work keys outside the library
@@ -80,6 +82,7 @@ def load_settings(root: Path) -> Settings:
         contact_email=str(raw.get("contact_email", "")),
         bib_encoding=str(raw.get("bib_encoding", "ascii")),
         auto_commit=bool(raw.get("auto_commit", True)),
+        inbox_sort=str(raw.get("inbox_sort", "relevance")),
         feeds=list(raw.get("feeds", [])),
         projects=dict(raw.get("projects", {})),
         own=[str(k) for k in raw.get("own", [])] if isinstance(raw.get("own", []), list) else [],
@@ -87,6 +90,8 @@ def load_settings(root: Path) -> Settings:
     )
     if not isinstance(raw.get("own", []), list):
         raise UsageError(f"{path}: own must be a list of keys, e.g. own = [\"warpalign\"]")
+    if s.inbox_sort not in INBOX_SORTS:
+        raise UsageError(f"{path}: inbox_sort must be 'relevance' or 'date', not {s.inbox_sort!r}")
     if s.bib_encoding not in ("ascii", "utf8"):
         raise UsageError(f"{path}: bib_encoding must be 'ascii' or 'utf8', not {s.bib_encoding!r}")
     return s
@@ -104,6 +109,10 @@ bib_encoding = {toml_str(bib_encoding)}
 
 # Commit every change ruru makes (only the files it touched). Never pushes.
 auto_commit = true
+
+# How `ruru inbox` and the TUI order new items: "relevance" (closest to your library first; falls
+# back to date while the library is small) or "date" (newest fetch first). `ruru inbox --sort` overrides it.
+inbox_sort = "relevance"
 
 # Feeds: `ruru feeds wizard` (interactive) or `ruru feeds add …`.
 # Projects: `ruru project add NAME --path … --bib … --tex …`.

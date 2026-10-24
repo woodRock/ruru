@@ -6,7 +6,8 @@ import pytest
 
 from conftest import git_log
 from httpfix import FIXTURES, Route, Router
-from ruru import cli, http, model
+from ruru import cli, desktop, http, model
+from ruru.errors import UsageError
 from ruru.http import Client, HttpError, NotFound
 from ruru.model import Paper
 from ruru.resolve import (
@@ -54,7 +55,7 @@ def test_parse_identifier(text, ident):
 
 @pytest.mark.parametrize("text", ["https://example.org/some/page", "   "])
 def test_parse_identifier_rejects(text):
-    with pytest.raises(cli.UsageError):
+    with pytest.raises(UsageError):
         parse_identifier(text)
 
 
@@ -295,7 +296,7 @@ def test_cli_pdf(lib, run, net, monkeypatch):
     n = len(net.requests)
     assert run("pdf", key, "--fetch").code == 0 and len(net.requests) == n  # already there
     opened = []
-    monkeypatch.setattr(cli.subprocess, "run", lambda cmd, check: opened.append(cmd))
+    monkeypatch.setattr(desktop.subprocess, "run", lambda cmd, check: opened.append(cmd))
     assert run("pdf", key, "--open").code == 0 and opened[0][1].endswith("paper.pdf")
     assert json.loads(run("show", key, "--json").out)["has_pdf"] is True
 
@@ -402,7 +403,7 @@ def test_cli_enrich_nothing_to_do(lib, run):
     assert run("enrich").code == cli.OK
 
 
-REAL_SPAWN = cli.spawn  # captured at import, before conftest replaces it
+REAL_SPAWN = desktop.spawn  # captured at import, before conftest replaces it
 
 
 def test_spawn_detaches_and_logs(tmp_path):
