@@ -5,8 +5,6 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
-import feedparser
-
 from ruru.http import Client, HttpError, NotFound
 from ruru.model import Paper, norm_id
 
@@ -36,6 +34,8 @@ def entry_to_paper(e: Any) -> Paper:
 
 def parse_dated(text: str) -> list[tuple[Paper, date | None]]:
     """(paper, date first submitted) for every entry."""
+    import feedparser  # lazy: ~15 ms that only arXiv lookups need
+
     d = feedparser.parse(text)
     if d.bozo and not d.entries and not d.get("version"):
         raise HttpError("export.arxiv.org: malformed response")

@@ -19,12 +19,15 @@ with examples. This skill is about workflow and judgement.
 - **Never add to the library or a paper: never run `ruru keep`, `ruru later` or `ruru cite`**, and
   never `ruru check --fix`/`--prune` (they cite). `later` counts: it puts the paper in the library.
   Those are Jesse's decisions; recommend them with `ruru suggest`, or tell him the exact command to
-  run. Never remove papers (`ruru rm`, `ruru unkeep`) either. Don't change feeds or projects
-  (`ruru feeds add/remove`, `ruru project add/remove`) unless he asks.
+  run. Never remove papers (`ruru rm`, `ruru unkeep`) or revert history (`ruru undo`) either. Don't
+  change feeds or projects (`ruru feeds add/remove`, `ruru project add/remove`) unless he asks.
 - **Never edit library files directly.** Everything goes through the CLI, which locks, writes
   atomically and commits each change, so Jesse can see and revert what you did.
 - **Use `--json`** for anything you parse, and `-q` for keys to chain. The schema is in the repo's
-  `docs/json.md`. Warnings go to stderr.
+  `docs/json.md`, and `ruru schema COMMAND` prints it as JSON Schema. Warnings go to stderr.
+- **Many lookups? One process:** `ruru batch -F -` reads one command per line (no leading `ruru`) and
+  prints a JSON result per line (`code`, `stdout`, `stderr`, parsed `data`). It refuses everything you
+  may not run one by one, so it is safe to feed it your whole plan.
 - **Exit codes:** 0 OK, 1 usage error or unknown key, 2 nothing matched (an empty search, or
   `check` found issues), 3 partial failure (a feed or API failed), 4 library locked (wait and retry).
 - Set `RURU_AGENT=claude` (or pass `--by claude`) so notes and suggestions are attributed to you.
@@ -45,8 +48,14 @@ with examples. This skill is about workflow and judgement.
 ## Weekly triage
 
 1. `ruru fetch` (exit 3 means some feed failed: mention which, carry on with the rest).
-2. `ruru inbox --json` and read every title and abstract. Start with the targeted feeds
-   (`ruru inbox -f rt-alignment --json` etc.); the journal feeds are high volume.
+2. `ruru inbox --json` and read every title and abstract. The inbox comes most relevant first:
+   `relevance` (0–1) is how close an item is to the papers Jesse keeps, `similar_to` names the nearest
+   ones, and titles he skipped before count against similar items. Treat it as a hint for where to
+   look first, never as a reason to skip: a low score on an item you haven't read proves nothing,
+   and `relevance` is null while his library is small. `possible_duplicate_of` names a paper (or an
+   earlier item) it very likely repeats (say so in your reason). `--sort date` gives newest first.
+   Start with the targeted feeds (`ruru inbox -f rt-alignment --json` etc.); the journal feeds are
+   high volume.
 3. Decide each item against Jesse's interests (fish and food chemistry with AI, GC-MS, REIMS and
    other ambient MS, retention-time alignment, chemometrics; `ruru project list --json` and
    `ruru list --json` show his projects and what he keeps):
@@ -70,6 +79,11 @@ with examples. This skill is about workflow and judgement.
 ## Finding and reading papers
 
 - `ruru search WORDS --json`: every word must match somewhere in metadata, notes or agent notes.
+  `--fulltext` also searches inside the PDFs (`in_pdf`, `snippet`); new PDFs are read once first,
+  which takes a while. `ruru related KEY --json` lists the closest papers to one (`--in all` includes
+  the inbox), the quickest way to find "what else do I have on this".
+- `ruru dupes --json` lists the same work held twice under different ids (a preprint and its journal
+  version). Tell Jesse; merging is his call.
 - `ruru list -t TAG -p PROJECT -s STATUS --json` to filter (`-p none`: in no project;
   `--sort added|key|year|status|title`, `-r` to reverse).
 - `ruru show KEY --json` for one paper, with Jesse's `notes` and the `agent_notes`; read the
@@ -93,8 +107,9 @@ discards it. `ruru review add` refuses a paper that isn't on the reading list or
    Jesse the list with links: he runs `ruru pdf missing KEY… --open`, signs in with his institution,
    saves each as `KEY.pdf` in Downloads, and tells you; then run `ruru pdf add` (it files every
    `KEY.pdf` in ~/Downloads into the library) and check `ruru pdf missing KEY…` is empty.
-3. **Read the full texts** (`ruru pdf KEY` prints the path; read the PDF with your file tool, in
-   page ranges for long papers). Quote numbers and claims from the paper, not from memory.
+3. **Read the full texts**: `ruru pdf text KEY` prints the PDF's text (`--page N` for one page,
+   `--json` for pages and text), or read the PDF itself with your file tool, in page ranges for long
+   papers. Quote numbers and claims from the paper, not from memory.
 4. **Write the review** as Markdown with front matter, citing papers only as `[@key]` or
    `[@a; @b]` (each listed paper at least once, nothing unlisted):
 
@@ -168,12 +183,16 @@ keeps the verdicts (`claims/<project>.json` in the library, one commit per `ruru
    `ruru pdf missing --cited PROJECT --fetch --open` (it downloads the open-access ones, then opens
    the publisher page of each of the rest, at most 10 at a time), saving each as `KEY.pdf` in
    Downloads; then `ruru pdf add`. Keys `in_library: false` need `ruru add` first (Jesse's call).
-3. **Read each PDF once** (`ruru pdf KEY` prints the path) and judge every claim citing it
-   (`ruru claims PROJECT -k KEY --json`). Judge what the sentence attributes to that paper, not the
-   rest of the sentence (often Jesse's own result).
+3. **Read each PDF once** (`ruru pdf text KEY`, or `ruru pdf KEY` for the path) and judge every claim
+   citing it (`ruru claims PROJECT -k KEY --json`). `ruru search --fulltext "words"` finds the
+   passage. Judge what the sentence attributes to that paper, not the rest of the sentence (often
+   Jesse's own result).
 4. **Record** with `ruru verdict PROJECT CLAIM KEY VERDICT --by claude`, or many at once as JSON
    lines with `-F file.jsonl` (`claim`, `key`, `verdict`, `from`, `page`, `quote`, `note`):
-   - `supported`: `--quote` the paper's own words, verbatim, with `-p PAGE`;
+   - `supported`: `--quote` the paper's own words, verbatim, with `-p PAGE`. ruru looks the quote up
+     in the PDF's text and refuses one that isn't there (line breaks, hyphenation and ligatures are
+     ignored). If that fails on text you can see in the PDF (maths, a bad text layer), say so to Jesse
+     and only then add `--no-verify`;
    - `partial`: the quote plus `--note` on what is overstated or narrower;
    - `unsupported`: `--note` saying what the paper does say;
    - `not-found`: you read it and couldn't find the passage either way;

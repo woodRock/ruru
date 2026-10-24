@@ -112,7 +112,7 @@ def loads(text: str, path: Path | None = None) -> Review:
     if not text.startswith("---\n") or "\n---" not in text[3:]:
         raise model.FrontMatterError("a review starts with a front matter block (--- … ---)")
     end = text.index("\n---", 3)
-    fm = yaml.safe_load(text[4:end + 1]) or {}
+    fm = model.load_yaml(text[4:end + 1]) or {}
     if not isinstance(fm, dict):
         raise model.FrontMatterError("review front matter must be a mapping")
     body = text[end + 4:].lstrip("-").strip("\n")

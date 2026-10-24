@@ -20,7 +20,7 @@ Agents such as Claude Code use exactly the same CLI.
 curl -fsSL https://raw.githubusercontent.com/woodRock/ruru/main/install.sh | bash
 ```
 
-This installs `ruru` (with the terminal UI) with [uv](https://docs.astral.sh/uv/) as an isolated tool in `~/.local/bin`,
+This installs `ruru` (with the terminal UI and PDF text) with [uv](https://docs.astral.sh/uv/) as an isolated tool in `~/.local/bin`,
 installing uv first if needed (and Python 3.11 if the machine doesn't have it). No sudo. Add
 `bash -s -- --upgrade` to update to the latest `main`, or `bash -s -- --uninstall` to remove it:
 
@@ -37,13 +37,16 @@ uv tool install --python 3.11 --editable "/path/to/ruru[tui]"   # drop [tui] for
 `--editable` follows the checkout, so `git pull` is enough to update (re-run with `--reinstall`
 when dependencies change). Without uv: `python3.11 -m pip install --user -e "/path/to/ruru[tui]"`.
 
+Extras: `[tui]` the terminal UI; `[pdf]` (pypdf) to read the text of PDFs for `ruru search --fulltext`,
+`ruru pdf text` and quote-checked verdicts (poppler's `pdftotext`, if installed, works instead).
+
 ## Quick start
 
 ```bash
 ruru init ~/papers --email you@example.org   # a git repo; becomes your default library
 ruru feeds wizard                            # follow journals, authors, topics, arXiv categories
 ruru fetch                                   # pull new papers into the inbox
-ruru inbox                                   # triage: ruru show ID, then keep / later / skip
+ruru inbox                                   # closest to your library first; ruru show ID, then keep / later / skip
 ruru keep doi-10.1021-acs.analchem.6c03760 -t gc-ms
 ruru add 2103.13807                          # or add anything directly: DOI, arXiv id, URL, title
 ruru search retention time alignment         # your library: metadata and notes
@@ -70,7 +73,7 @@ A library is a git repository (default `~/papers`; set in `~/.config/ruru/config
 │       ├── paper.bib         generated from paper.md on every change; never edit it
 │       └── paper.pdf         git-ignored
 ├── seen.jsonl                every inbox item ever triaged (dedupe)
-└── .ruru/                    git-ignored: lock file, caches
+└── .ruru/                    git-ignored: lock file, HTTP cache, index.sqlite (ranking, PDF text)
 ```
 
 - **Keys** look like `wood2026joint`: first author's surname, year, first significant title word.
@@ -79,6 +82,8 @@ A library is a git repository (default `~/papers`; set in `~/.config/ruru/config
   needs; set `bib_encoding = "utf8"` for biber/biblatex.
 - **Git:** every change is committed (only the files it touched), e.g. `ruru: tag wood2026joint
   +gc-ms`. Turn this off with `--no-commit` or `auto_commit = false`. ruru never pushes.
+  `ruru undo` reverts ruru's last commit with a new commit (`--list` shows what it would revert, `-n 3`
+  reverts three; PDFs are not in git, so an undone `rm` does not bring the PDF back).
 - **Duplicates:** the same DOI, arXiv id (any version), OpenAlex or Semantic Scholar id, or the same
   title within a year, is the same paper.
 
@@ -88,6 +93,8 @@ ruru add --bib refs.bib -t gc-ms           # import BibTeX (keys regenerated; --
 ruru list -s to-read
 ruru list -p none --sort year              # in no project, newest year first (--sort added|key|year|status|title, -r)
 ruru search retention time alignment
+ruru search --fulltext 'Huber weights'     # also inside the PDFs (needs ruru[pdf]; each is read once)
+ruru related wood2026joint                 # the papers closest to this one
 ruru show wood2026joint --bib
 ruru tag wood2026joint +key-paper -todo
 ruru status wood2026joint read
@@ -100,7 +107,8 @@ ruru note wood2026joint                    # your notes, in $EDITOR
 ```bash
 ruru feeds wizard                          # interactive: arXiv categories, journals, authors, topics
 ruru fetch                                 # new items only: not in the library, inbox or seen.jsonl
-ruru inbox                                 # newest first; `ruru show ID` for the abstract
+ruru inbox                                 # closest to your library first; `ruru show ID` for the abstract
+ruru inbox --sort date                     # newest fetch first instead
 ruru keep doi-10.1021-acs.analchem.6c03760 -t gc-ms     # into the library as read
 ruru later arxiv-2610.01234                # into the library as `later`: the reading list
 ruru status guan2026sphere read            # done reading: off the reading list
@@ -126,6 +134,30 @@ scheduled task.
 To look for papers outside your feeds: `ruru find retention time alignment gc-ms` (OpenAlex), then
 `ruru add` the id it prints.
 
+### Ranking, related papers and duplicates
+
+The inbox is sorted by **relevance**: how close an item's title and abstract are to the papers you
+already keep. It is plain TF-IDF (stemmed words, rare words count for more, cosine similarity): no
+model, no network, nothing leaves your machine. An item's score is its closeness to its three nearest
+library papers, so a niche interest is not diluted by the rest of the library, and `ruru inbox` shows
+the score and the nearest paper (`~ key`). Titles you **skip** count against similar items, so the
+off-topic bulk sinks. Ranking needs at least 5 papers in the library (until then, and whenever you
+ask, the order is by date), and it only reorders: nothing is ever hidden.
+
+```bash
+ruru inbox --sort date          # or set  inbox_sort = "date"  in ruru.toml; the TUI's S key toggles it
+ruru inbox --json               # adds relevance, similar_to and possible_duplicate_of to every item
+ruru related guillevic2021automated -n 5      # nearest library papers (--in inbox|all to include the inbox)
+ruru related arxiv-2610.01234 --in all        # an inbox item against everything
+ruru dupes                      # the same work under different ids, e.g. a preprint and its journal version
+```
+
+A near-duplicate is a pair with very close title and abstract, a shared first author (or two shared
+authors), and years at most two apart; the inbox marks such items `≈` and `--json` names the paper in
+`possible_duplicate_of`. `ruru doctor` counts them. Ranking works from `.ruru/index.sqlite`, a cache of
+word counts (and PDF text) keyed on each file's size and time: it is rebuilt by itself, safe to
+delete, and `ruru index` / `ruru index update` / `ruru index rebuild` show and manage it.
+
 ## The terminal UI
 
 `ruru tui` (needs the `[tui]` extra) shows the inbox, your reading list (kept, not read yet:
@@ -135,7 +167,7 @@ library. Every key calls the same code as the CLI, so each action is committed a
 | where | keys |
 |---|---|
 | everywhere | `1`–`5` tabs (inbox, reading list, reviews, library, projects) · `j`/`k` move · `/` filter (`t:TAG p:PROJECT s:STATUS f:FEED` and words; `p:none` for papers in no project) · `r` reload · `q` quit |
-| Inbox | new (unviewed) items are **bold** until the cursor rests on one for a second · `u` mark new/seen · `y` keep (as read) · `n` skip · `l` reading list · `a` accept the agent's suggestion · `t` keep with tags · `p` keep for a project · `o` open URL · `f` fetch |
+| Inbox | new (unviewed) items are **bold** until the cursor rests on one for a second · the `match` column is the relevance score, `≈` marks a possible duplicate · `S` order by relevance or date · `u` mark new/seen · `y` keep (as read) · `n` skip · `l` reading list · `a` accept the agent's suggestion · `t` keep with tags · `p` keep for a project · `o` open URL · `f` fetch |
 | Reviews | new reviews are **bold** and listed first, newest on top · `S` sort: created, title, papers · `y` keep · `n` discard · `o`/`enter` open the web page · `/` filter (words, `t:TAG`) |
 | Reading list, Library | `y` mark read (reading list, or a paper's screen) · `enter` open · `d` PDF (open; else open access; else the publisher page) · `t` tag (`+a -b`) · `s` status · `e` edit your notes in `$EDITOR` · `o` open URL · `x` remove (asks first) · `S` sort: added (newest first; same-day papers by when they were filed), key, year, status, title |
 | Projects | reading list, citation check and claims summary per project · `c` re-check · `m` get the PDFs its claims cite (open access first, then the publisher pages) · `enter` the claims screen |
@@ -286,12 +318,23 @@ openalex_api_key = "…"        # or set RURU_OPENALEX_API_KEY
 
 ## Using ruru with agents
 
-Every command runs without a terminal and never prompts. `--json` on read commands (schema in
-[docs/json.md](docs/json.md)), `-q` prints keys only, warnings go to stderr, and colour appears only
+Every command runs without a terminal and never prompts. `--json` on read commands (described in
+[docs/json.md](docs/json.md), and as JSON Schema by `ruru schema [COMMAND|OBJECT]`), `-q` prints keys only, warnings go to stderr, and colour appears only
 on a TTY without `NO_COLOR`. Exit codes: 0 OK, 1 usage error or unknown key, 2 nothing matched,
 3 partial failure, 4 library locked by another ruru process. Agents add notes with
 `ruru note KEY --agent -m TEXT`, which never touches your `## Notes` section, and recommend triage
 decisions with `ruru suggest ID keep|skip|later --reason TEXT`, which you see in `ruru inbox`.
+
+Each `ruru` call costs a process start. An agent with many lookups can run them in one:
+
+```bash
+printf 'show wood2026joint --json\nsearch alignment --json\nrelated wood2026joint --json\n' | ruru batch -F -
+```
+
+`ruru batch` prints one JSON result per line of input (`argv`, `code`, `stdout`, `stderr`, and the
+parsed `data` when the output is JSON). It only runs the commands agents may run one by one (the
+allow list below), so it is no way round the deny list; `--stop-on-error` stops at the first failure.
+`ruru verdict` checks that a `--quote` is really in the paper's PDF (`--no-verify` skips that).
 
 ### The Claude Code skill
 
@@ -320,15 +363,17 @@ Code permission rule. In `~/.claude/settings.json` (or a project's `.claude/sett
     "allow": [
       "Bash(ruru list:*)", "Bash(ruru show:*)", "Bash(ruru search:*)", "Bash(ruru find:*)",
       "Bash(ruru inbox:*)", "Bash(ruru feeds list:*)", "Bash(ruru project list:*)",
-      "Bash(ruru doctor:*)", "Bash(ruru export:*)",
+      "Bash(ruru related:*)", "Bash(ruru dupes:*)", "Bash(ruru index:*)", "Bash(ruru schema:*)",
+      "Bash(ruru batch:*)", "Bash(ruru doctor:*)", "Bash(ruru export:*)",
       "Bash(ruru fetch:*)", "Bash(ruru suggest:*)", "Bash(ruru note:*)", "Bash(ruru tag:*)",
       "Bash(ruru skip:*)", "Bash(ruru unskip:*)", "Bash(ruru seen:*)",
       "Bash(ruru review list:*)", "Bash(ruru review show:*)", "Bash(ruru review add:*)",
-      "Bash(ruru pdf missing:*)", "Bash(ruru pdf add:*)", "Bash(ruru claims:*)", "Bash(ruru verdict:*)",
+      "Bash(ruru pdf missing:*)", "Bash(ruru pdf add:*)", "Bash(ruru pdf text:*)", "Bash(ruru claims:*)", "Bash(ruru verdict:*)",
       "Bash(ruru own list:*)", "Bash(ruru cited list:*)", "Bash(ruru cited bib:*)"
     ],
     "deny": [
       "Bash(ruru keep:*)", "Bash(ruru later:*)", "Bash(ruru cite:*)", "Bash(ruru rm:*)", "Bash(ruru unkeep:*)",
+      "Bash(ruru undo:*)",
       "Bash(ruru feeds add:*)", "Bash(ruru feeds remove:*)",
       "Bash(ruru project add:*)", "Bash(ruru project remove:*)",
       "Bash(ruru review keep:*)", "Bash(ruru review discard:*)",
@@ -338,7 +383,8 @@ Code permission rule. In `~/.claude/settings.json` (or a project's `.claude/sett
 }
 ```
 
-Everything else (`add`, `refresh`, `enrich`, `pdf --fetch`, `review open`, `status`, `check`) asks first. `check` stays off
+`undo` is denied because reverting is your decision. Everything else (`add`, `refresh`, `enrich`,
+`pdf --fetch`, `review open`, `status`, `check`) asks first. `check` stays off
 the allow list because `check --fix` cites. The rules match the start of the command, so agents
 should not put options before the subcommand (`ruru -L … keep` would slip past a deny rule); the
 skill tells them not to, and every agent write is a git commit you can inspect and revert.

@@ -45,8 +45,9 @@ expanded under `nohup`).
 
 ## Architecture
 
-M0–M6 done (v1). Later: `related`, `export site|pdf`, PDF text extraction for search,
-inbox ranking by similarity to the library.
+M0–M6 done (v1), then: the `cli.py`/`ops.py` split into packages, the derived index, TF-IDF inbox ranking
+(`related`, `dupes`, skip history as negative examples), PDF text (`search --fulltext`, `pdf text`,
+quote-checked verdicts), `schema`, `batch`, `undo`. Later: `export site|pdf`.
 Update this section as each lands.
 
 Additions beyond the brief: `ruru find` (OpenAlex search for papers not yet in the library), `ruru show`
@@ -98,9 +99,14 @@ the user config is `~/.config/ruru/config.toml` on macOS too.
   arXiv 7, OpenAlex 30, since both filter on publication date and records appear late; never before
   the feed's `start`, its first window, so the overlap doesn't pull in a backlog).
 - `tomledit.py`: append/remove one table in ruru.toml, keeping Jesse's comments.
-- `ops.py`: operations shared by CLI and TUI: `fetch` (dedupe, resolve new RSS DOIs, one commit,
-  state only for feeds that succeeded), `triage` (keep/later/skip + seen.jsonl), `suggest`,
-  `add_feed`/`remove_feed`.
+- `ops/` (a package; `ops/__init__.py` re-exports everything public, so callers and tests say `ops.fetch`,
+  `ops.triage`, …, and tests replace e.g. `ops.fetch_pdf` on the package): operations shared by CLI and TUI.
+  `triage.py` (`fetch`: dedupe, resolve new RSS DOIs, one commit, state only for feeds that succeeded;
+  `triage` keep/later/skip + seen.jsonl; `suggest`, `unkeep`, `unskip`), `settings.py` (feeds, own work,
+  `[cited]` in ruru.toml), `projects.py` (`cite`, `check`), `papers.py` (`tag`, `set_status`, `rekey`, `remove`,
+  `enrich`, PDFs, `client_for`), `reviews.py`, `claims.py` (claims, verdicts), `ranking.py`, `fulltext.py`,
+  `history.py`, `common.py`. mypy checks the package with strict flags (pyproject). A function that needs a
+  sibling that tests replace calls it through the package (`ops.fetch_pdf` in `fetch_open_access`).
 - `projects.py`: `Project` (`[projects.<name>]`), `BibFile` (split a .bib around the managed block;
   `managed` = key → entry text; `render` rewrites only the block, sorted by key), `entry_keys`,
   `scan_tex` (cite commands incl. optional args and `\nocite{*}`, follows `\input`/`\include`
@@ -119,8 +125,8 @@ the user config is `~/.config/ruru/config.toml` on macOS too.
 - `ops.enrich` (`ruru enrich`): `Resolver.lookup` (best id, else exact title) then
   `resolve.fill_gaps` (empty `FILLABLE` fields and missing ids only; never title/type), refusing a
   record with a different normalised title or one whose new id belongs to another paper.
-  `ruru add --bib` stays offline and then `cli.spawn`s `python -m ruru enrich KEYS` detached (log
-  `.ruru/enrich.log`, `--no-enrich` to skip); conftest replaces `cli.spawn` (`spawned` fixture).
+  `ruru add --bib` stays offline and then `desktop.spawn`s `python -m ruru enrich KEYS` detached (log
+  `.ruru/enrich.log`, `--no-enrich` to skip); conftest replaces `desktop.spawn` (`spawned` fixture).
 - `ops.remove` (`ruru rm`, `x` in the TUI): deletes paper.md/paper.bib (and the git-ignored PDF) in
   one commit and appends a `remove` record to seen.jsonl so feeds don't bring the paper back.
 - `ops.unkeep` (`ruru unkeep`): library → inbox as a new item (today's fetch date, the original
@@ -134,22 +140,22 @@ the user config is `~/.config/ruru/config.toml` on macOS too.
   in `model.UNREAD` or without a PDF; status `new` → `kept`, or discarded (deleted). Rendered on
   demand by `export/review_html.py` (markdown-it, raw HTML off, no scripts; `$…$`/`$$…$$` via
   mdit-py-plugins' dollarmath and latex2mathml to MathML) to `.ruru/reviews/` via
-  `cli.render_review_file`. TUI tab 3 (`y` keep, `n` discard, `o` open, `S` sort).
+  `ops.render_review_file`. TUI tab 3 (`y` keep, `n` discard, `o` open, `S` sort).
   Lists: `reviews.sort_reviews` puts new first, then `SORTS`; `created` is a datetime (`model.now`),
   older date-only reviews break ties by `gitops.added_times` (commit time of the file).
 - PDFs: `ruru pdf` is a group (`show`, `add`, `missing`); `main` rewrites `ruru pdf KEY …` to
   `pdf show KEY …`. `ops.add_pdfs` moves `KEY.pdf` files (or `--key`) into `papers/KEY/` after a
-  `%PDF` check; `cli.downloads_dir()` (`downloads` in the user config, default ~/Downloads).
-  `cli.browse_for_pdf` opens `ops.paper_link` and puts `KEY.pdf` on the clipboard; conftest
-  replaces `webbrowser.open` and `cli.copy_to_clipboard` (`browsed`, `clipboard` fixtures).
+  `%PDF` check; `desktop.downloads_dir()` (`downloads` in the user config, default ~/Downloads).
+  `desktop.browse_for_pdf` opens `ops.paper_link` and puts `KEY.pdf` on the clipboard; conftest
+  replaces `webbrowser.open` and `desktop.copy_to_clipboard` (`browsed`, `clipboard` fixtures).
 - `claims.py` + `ops.claims`/`record_verdicts`/`drop_verdicts` (`ruru claims`, `ruru verdict`): the
   .tex's citing sentences (`extract`: body only, comments stripped, `\nocite` ignored; split at
   sentence ends, blank lines, headings, `\item`, environments, not after `et al.`/`e.g.`/initials),
   id = hash of the text with cites as `[@a; @b]`. Verdicts per (claim, key) in
   `claims/<project>.json` (`VERDICTS`; `make` enforces quote/note and `--from pdf` needing a PDF);
   verdicts whose claim is gone are `stale`. `ops.cited_keys` (the claims' keys) backs
-  `ruru pdf missing --cited`; `--fetch` tries open access first (`cli.cited_papers`,
-  `fetch_open_access`, `open_links`, shared with the TUI). Agents may record verdicts.
+  `ruru pdf missing --cited`; `--fetch` tries open access first (`ops.cited_papers`,
+  `ops.fetch_open_access`, `desktop.open_links`, shared with the TUI). Agents may record verdicts.
   TUI: the project pane's Claims section (`claims_summary`), `enter` → `ClaimsScreen` (`v` asks the
   verdict's fields through chained dialogs, `ask`), `m` the missing-PDF worker, `a` files downloads,
   `e` → `edit_at` (`editor_command`: `+LINE` or FILE:LINE). `RuruApp.project_claims` caches
@@ -169,13 +175,17 @@ the user config is `~/.config/ruru/config.toml` on macOS too.
 - `skills/ruru/SKILL.md`: the agent-facing workflows and rules. `tests/test_skill_docs.py` checks
   that every `ruru …` it (and the README, docs, this file) shows as code exists, and that the
   README's permission rules deny keep/skip/cite. Update the skill when commands change.
-- `tui.py`: Textual app (`RuruApp`), only imported by `cli.cmd_tui`. Tabs Inbox / Reading list
+- `tui/` (a package: `render.py` the pure filters and Markdown, `widgets.py` `Table`/`Prompt`/`Choose` and the
+  timing constants, `screens.py` `PaperScreen`/`ClaimsScreen`, `app.py` `RuruApp`; `__init__` re-exports the
+  public names): Textual app (`RuruApp`), only imported by `commands.system.cmd_tui`. Tabs Inbox / Reading list
   (`model.UNREAD` statuses) / Reviews / Library (read) / Projects; `y` keeps as read in the inbox and marks read
   on the reading list or a paper screen (`check_action` filters `triage` by its parameter); every action calls `ops` (`triage`, `suggest`, `tag`, `set_status`, `set_notes`,
   `fetch_pdf`, `fetch`, `check`); network work runs in `@work(thread=True)` workers. `fingerprint`
   (mtimes of `.git/index`, settings, seen.jsonl, papers/, inbox/ dirs) is polled every 2 s to reload
   on outside changes. Only the visible detail pane renders, `DETAIL_SECONDS` after the cursor settles
-  (`_shown` skips unchanged ones). `open_file`/`webbrowser.open`/`cli.edit_text` are the seams tests patch.
+  (`_shown` skips unchanged ones). `desktop.open_file`/`desktop.edit_at`/`desktop.edit_text` and `webbrowser.open` are the seams tests patch. The inbox tab
+  orders by relevance or date (`S`; `inbox_sort` in ruru.toml sets the start), shows the `match` column
+  and marks possible duplicates `≈`, all from `ops.ranked_inbox`.
   Pilot tests in `tests/test_tui.py` (run synchronously via `asyncio.run`; no pytest plugin).
 - `logo.py`: the mascot, as rows of `(text, role)` with a 256-colour palette. `banner()`/`ansi()`
   for the CLI (bare `ruru` prints it to stderr, colour only on a TTY), `rich_text()` for the TUI's
@@ -187,10 +197,34 @@ the user config is `~/.config/ruru/config.toml` on macOS too.
   is a date, so `filed_times` breaks same-day ties by paper.md's commit time) and
   `in_project` (`NO_PROJECT = "none"`, a reserved project name) shared by `ruru list` and the TUI.
 - `output.py`: colour (`style`), `paper_json` (the docs/json.md schema), `paper_line`.
-- `cli.py`: network work happens before `lib.transaction()` (never hold the lock across HTTP), and
-  writes after it re-read the paper and apply only metadata. `_exit_code` maps per-item failures to
-  1 (all failed alike) or 3 (mixed). argparse; one `cmd_*` per command; `common`/`write`/`read` parent parsers give every
-  subcommand `-L`, `--no-commit`, `-q`, `--json`. `main` maps `RuruError` to exit codes.
+- The command line is `cli.py` (`build_parser`, `parse`, `dispatch`, `main`), `cmdkit.py` (`Builder`, which
+  registers a command and nests groups like `feeds add`; the `common`/`write`/`read` parent parsers give every
+  subcommand `-L`, `--no-commit`, `-q`, `--json`; `open_library`, `exit_code`, `print_papers`, …) and
+  `commands/*.py`, one module per area (`library`, `inbox`, `similar`, `projects`, `claims`, `reviews`, `pdf`,
+  `system`), each with `cmd_*` functions and `register(builder)`. Network work happens before
+  `lib.transaction()` (never hold the lock across HTTP), and writes after it re-read the paper and apply
+  only metadata. `exit_code` maps per-item failures to 1 (all failed alike) or 3 (mixed). `dispatch` maps
+  `RuruError` to exit codes and a broken pipe (`| head`) to success.
+- `desktop.py`: everything that reaches outside the library (`edit_text`, `spawn`, `copy_to_clipboard`,
+  `browse_for_pdf`, `downloads_dir`, `open_links`); callers say `desktop.x(…)`, never a local copy, so tests
+  can replace them.
+- `model.load_yaml` uses libyaml's `CSafeLoader` when present (10× faster than `safe_load`, identical results).
+  `bibtexparser` and `feedparser` are imported inside the functions that use them: a command that needs
+  neither starts about twice as fast (`tests/test_startup.py` guards this).
+- `rank.py` (pure): `counts` (stemmed words; title ×3, tags ×2), `Idf`, `vectorise`, `Corpus.nearest`
+  (inverted index), `relevance` (0.5/0.3/0.2 over the three nearest library papers, minus 0.5× the same over
+  skipped titles; `None` below `MIN_LIBRARY` papers). `dupes.py` (pure): near-duplicates, blocked by
+  author family name. `index.py`: `Index` = `.ruru/index.sqlite`, a cache keyed on (mtime, size) of the file
+  each row came from: word counts for papers and inbox items, extracted PDF text with an FTS5 table (a scan
+  fallback without FTS5). It never holds anything the files don't, and an unusable database degrades to
+  no cache. `pdftext.py`: pypdf, else poppler's `pdftotext`; `find_quote` (ignores line breaks, hyphenation,
+  ligatures) backs the quote check in `ops.record_verdicts`.
+- `schema.py`: JSON Schema for every `--json` shape; `tests/test_schema.py` validates real output against it
+  (add a definition when you add a JSON shape). `ruru batch` runs lines in-process via `cli.parse` +
+  `cli.dispatch` and only the `(command, action)` pairs in `commands.system.BATCHABLE`, which must all be on
+  the README's agent allow list (a test enforces it); it takes the action from the parsed namespace, never
+  from the text. `ruru undo` is `ops.history`: `git revert` of ruru's own commits (message `ruru:`), under the
+  library lock, refusing when the files have uncommitted changes.
 
 Tests: `tests/conftest.py` isolates every test (`RURU_CONFIG`, git identity, short lock timeout) and
 provides `run(*argv) -> Result(code, out, err)` and a `lib` fixture (an initialised library). It

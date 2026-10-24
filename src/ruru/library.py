@@ -18,6 +18,7 @@ from ruru.bibtex import to_bibtex
 from ruru.config import SETTINGS_FILE, Settings, load_settings, settings_template
 from ruru.errors import UnknownKey, UsageError
 from ruru.fsutil import atomic_write, library_lock
+from ruru.index import Index
 from ruru.keys import base_key, unique_key
 from ruru.model import Paper
 
@@ -58,6 +59,14 @@ class Library:
         self.root = root
         self.settings = settings
         self.auto_commit = settings.auto_commit if auto_commit is None else auto_commit
+        self._index: Index | None = None
+
+    @property
+    def index(self) -> Index:
+        """The derived cache in .ruru/ (word counts, PDF text); safe to ignore or delete."""
+        if self._index is None:
+            self._index = Index(self.root)
+        return self._index
 
     @classmethod
     def open(cls, root: Path, *, auto_commit: bool | None = None) -> Library:

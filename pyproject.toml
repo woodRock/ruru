@@ -24,7 +24,8 @@ dependencies = [
 
 [project.optional-dependencies]
 tui = ["textual>=1.0"]
-dev = ["pytest>=8", "coverage>=7", "ruff", "mypy", "types-PyYAML"]
+pdf = ["pypdf>=4,<7"]  # `ruru search --fulltext`, `ruru pdf text`, checking verdict quotes (or poppler's pdftotext)
+dev = ["pytest>=8", "coverage>=7", "ruff", "mypy", "types-PyYAML", "pypdf>=4,<7", "jsonschema>=4"]
 
 [project.scripts]
 ruru = "ruru.cli:main"
@@ -87,6 +88,20 @@ check_untyped_defs = true
 warn_unused_ignores = true
 warn_redundant_casts = true
 no_implicit_optional = true
+
+# The operations layer is shared by the CLI and the TUI, so it is held to the strictest settings.
+[[tool.mypy.overrides]]
+module = ["ruru.ops", "ruru.ops.*"]
+disallow_any_generics = true
+disallow_subclassing_any = true
+disallow_untyped_calls = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+disallow_untyped_decorators = true
+warn_return_any = true
+no_implicit_reexport = true
+strict_equality = true
+extra_checks = true
 
 [tool.ruff.format]
 quote-style = "preserve"

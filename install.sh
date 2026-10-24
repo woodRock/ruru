@@ -11,7 +11,7 @@
 set -euo pipefail
 
 TOOL="ruru"
-SPEC="ruru[tui] @ git+https://github.com/woodRock/ruru"
+SPEC="ruru[tui,pdf] @ git+https://github.com/woodRock/ruru"
 COMMANDS="ruru"
 PYTHON="3.11"
 

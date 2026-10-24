@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from httpfix import Router, standard
-from ruru import cli, http
+from ruru import cli, desktop, http
 
 
 @dataclass
@@ -36,12 +36,12 @@ def isolated(tmp_path, monkeypatch):
     monkeypatch.setattr(http, "default_sleep", lambda s: None)
     # Nor background processes: `ruru add --bib` would start `ruru enrich`. Tests read the calls.
     spawned: list[list[str]] = []
-    monkeypatch.setattr(cli, "spawn", lambda argv, log: spawned.append(argv))
+    monkeypatch.setattr(desktop, "spawn", lambda argv, log: spawned.append(argv))
     # Nor browsers or the clipboard: `browsed` and `clipboard` record what would have been opened/copied.
     browsed: list[str] = []
     clipboard: list[str] = []
-    monkeypatch.setattr(cli.webbrowser, "open", browsed.append)
-    monkeypatch.setattr(cli, "copy_to_clipboard", lambda text: clipboard.append(text) or True)
+    monkeypatch.setattr(desktop.webbrowser, "open", browsed.append)
+    monkeypatch.setattr(desktop, "copy_to_clipboard", lambda text: clipboard.append(text) or True)
     return spawned, browsed, clipboard
 
 

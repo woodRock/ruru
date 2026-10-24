@@ -38,6 +38,29 @@ APIS: dict[str, tuple[str, dict[str, Any]]] = {
 }
 
 
+def _derived_checks(lib: Library, add: Callable[..., None]) -> None:
+    """The index, PDF text and near-duplicates: nothing here is required, so problems are only warnings."""
+    from ruru import ops, pdftext
+
+    if lib.index.path.exists():
+        st = lib.index.status()
+        add("index", st.exists, f"{st.papers} papers and {st.inbox} inbox items counted, {st.pdfs} PDFs read"
+            if st.exists else f"{st.path} can't be opened: ranking works, only slower (`ruru index rebuild`)",
+            bad="warn")
+    else:
+        add("index", True, "not built yet: `ruru inbox`, `ruru related` or `ruru index update` builds it")
+    keys = lib.keys()
+    if any(lib.has_pdf(k) for k in keys):
+        add("pdf text", pdftext.have_extractor(), "pypdf or pdftotext found: `ruru search --fulltext` works"
+            if pdftext.have_extractor() else "no extractor: pip install 'ruru[pdf]' to search inside PDFs",
+            bad="warn")
+    try:
+        pairs = ops.duplicate_pairs(lib)
+    except RuruError:
+        return
+    add("near-duplicates", not pairs, "none" if not pairs else f"{len(pairs)} possible: `ruru dupes`", bad="warn")
+
+
 def run(root: Path, *, offline: bool = False, client: Callable[[Library], Client] | None = None) -> list[Check]:
     checks: list[Check] = []
 
@@ -101,6 +124,8 @@ def run(root: Path, *, offline: bool = False, client: Callable[[Library], Client
     readable = len(box.items()) if files else 0
     add("inbox", readable == len(files), f"{readable} items" + (
         f"; {len(files) - readable} unreadable" if readable != len(files) else ""), bad="warn")
+
+    _derived_checks(lib, add)
 
     if offline:
         return checks

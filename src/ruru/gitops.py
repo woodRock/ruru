@@ -84,3 +84,41 @@ def identity(root: Path) -> str | None:
     if res.returncode != 0 or ">" not in res.stdout:
         return None
     return res.stdout.split(">", 1)[0] + ">"
+
+
+def commits(root: Path, limit: int = 20) -> list[dict[str, str]]:
+    """Recent commits, newest first: {"sha", "date" (ISO 8601), "message" (subject), "parents" (count)}."""
+    if not is_repo(root):
+        return []
+    res = _git(root, "log", f"-{limit}", "--format=%H%x1f%aI%x1f%s%x1f%P")
+    out = []
+    for line in res.stdout.splitlines():
+        sha, date, message, parents = (line.split("\x1f") + ["", "", "", ""])[:4]
+        if sha:
+            out.append({"sha": sha, "date": date, "message": message, "parents": str(len(parents.split()))})
+    return out
+
+
+def changed_files(root: Path, sha: str) -> list[str]:
+    """Paths a commit touched."""
+    res = _git(root, "show", "--name-only", "--format=", sha)
+    return [line for line in res.stdout.splitlines() if line.strip()]
+
+
+def dirty_among(root: Path, paths: Sequence[str]) -> list[str]:
+    """Those of `paths` with uncommitted changes (a revert would collide with them)."""
+    if not paths:
+        return []
+    res = _git(root, "status", "--porcelain", "--", *paths)
+    return [line[3:] for line in res.stdout.splitlines() if line.strip()]
+
+
+def revert(root: Path, sha: str, message: str) -> tuple[bool, str]:
+    """Revert one commit as a new commit with `message`. (True, new sha), or (False, git's complaint)
+    with the working tree left as it was."""
+    res = _git(root, "revert", "--no-edit", sha)
+    if res.returncode != 0:
+        _git(root, "revert", "--abort")
+        return False, (res.stderr or res.stdout).strip()
+    _git(root, "commit", "--amend", "-q", "-m", message)
+    return True, _git(root, "rev-parse", "HEAD").stdout.strip()

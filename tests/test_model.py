@@ -132,3 +132,12 @@ def test_same_paper():
     assert not model.same_paper(_p(), _p(year=2028))
     assert not model.same_paper(_p(doi="10.1/a"), _p("Different", doi="10.1/b"))
     assert not model.same_paper(_p(""), _p(""))
+
+
+def test_the_fast_yaml_loader_agrees_with_the_safe_one():
+    import yaml
+    text = ("key: wood2026joint\ntitle: 'A: tricky, title'\nyear: 2026\nadded: 2026-10-17\n"
+            "ids: {doi: 10.1/x, arxiv: null}\ntags: [a, b]\nextra_date: 2026-01-02\n"
+            "extra_time: 2026-01-02T03:04:05\n")
+    assert model.load_yaml(text) == yaml.safe_load(text)
+    assert type(model.load_yaml(text)["extra_date"]).__name__ == "date"

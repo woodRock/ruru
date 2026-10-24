@@ -2,7 +2,9 @@
 
 `--json` output is a public API: keys are only ever added, never renamed or removed, without a
 major version bump. Dates are ISO 8601 (`YYYY-MM-DD`), ids are given in full, and missing
-values are `null` (never omitted). stdout carries only the JSON document; warnings go to stderr.
+values are `null` (never omitted). stdout carries only the JSON document; warnings go to stderr. `ruru schema` prints all of this as
+JSON Schema (`ruru schema inbox` for one command, `ruru schema paper` for one object, `-q` lists the
+names); the tests validate real output against it. A command that finds nothing prints `[]` and exits 2.
 
 ## Paper object
 
@@ -40,12 +42,19 @@ Every front matter field of `paper.md`, in this order, then two derived fields.
 | command | output |
 |---|---|
 | `ruru list --json` | array of paper objects, newest `added` first; `[]` (exit 2) if none match |
-| `ruru search QUERY --json` | array of paper objects, each with `score` (int, higher is better), best first; `[]` (exit 2) if none match |
+| `ruru search QUERY --json` | array of paper objects, each with `score` (int, higher is better), `in_pdf` (bool: the words are in the PDF's text; only with `--fulltext`) and `snippet` (string \| null: where in the PDF), best first; `[]` (exit 2) if none match. `--fulltext` also finds papers by the text of their PDFs: such a hit scores 1, and a paper found both ways scores one more |
 | `ruru show KEY --json` | one paper object with `notes` and `agent_notes`; exit 1 if the key is unknown |
 | `ruru enrich --json` | array, one object per paper attempted: `key`, `error` (string \| null), `filled` (`{field: new value}`; `ids` is the whole new ids object; empty when nothing was found to fill). Exit 3 if some failed. With `--dry-run` nothing is written. |
 | `ruru refresh --json` | array, one object per paper attempted: `key`, `error` (string \| null), `changes` (`{field: {"old": …, "new": …}}`, empty when up to date). Exit 3 if any failed. With `--dry-run` nothing is written. |
 
-| `ruru inbox --json` | array of inbox item objects, newest first; `[]` (exit 2) if empty |
+| `ruru inbox --json` | array of inbox item objects, most relevant first (`--sort date`: newest fetch first; `inbox_sort` in ruru.toml sets the default; while the library has fewer than 5 papers the order is by date); `[]` (exit 2) if empty |
+| `ruru related KEY\|ID --json` | array, closest first (`-n`, default 10; `--in library\|inbox\|all`): `id` (a library key or an inbox id), `kind` (`library` \| `inbox`), `similarity` (0–1), `title`, `authors`, `year`, `venue`, `status` (a library paper's, else null); `[]` (exit 2) if nothing resembles it |
+| `ruru dupes --json` | array of near-duplicate pairs, most similar first: `a` (a library key, or the earlier inbox id), `b` (an inbox id, or a second key), `similarity`, `same` (`ruru`'s dedupe rule already calls them one paper), `a_title`, `b_title`; `[]` (exit 2) if none |
+| `ruru pdf text KEY --json` | `{"key", "pages", "page" (the `--page` asked for, else null), "text"}`; pages are separated by a form feed in the whole text |
+| `ruru index --json` | the index's state: `path`, `exists`, `bytes`, `papers`, `inbox` (documents counted), `pdfs` (PDFs read), `pdfs_failed`, `full_text_search` |
+| `ruru index update --json` | `{"papers", "inbox", "pdfs": null \| {"extracted": [keys], "failed": {key: why}, "current"}}`; exit 3 if a PDF failed |
+| `ruru undo --json` | array of `{"sha", "date", "message", "files", "reverted_as"}` for the commits undone (`--list`, `--dry-run`: `reverted_as` is null); `[]` (exit 2) if the newest commit is not ruru's |
+| `ruru batch -F FILE` | array, one per input line: `{"argv", "code" (that command's exit code), "stdout", "stderr", "data" (stdout parsed as JSON, else null)}`; exit 3 if some commands failed (exit 2 "no match" results are answers, not failures). Only commands agents may run one by one are allowed |
 | `ruru show ID --json` | one inbox item object, for an id still in the inbox |
 | `ruru fetch --json` | `{"feeds": [{"name", "new", "seen", "error"}], "new": [inbox ids]}`; exit 3 if any feed failed |
 | `ruru feeds --json` | array of feed objects (the `[[feeds]]` fields in ruru.toml) plus `last_fetch` (date \| null) |
@@ -64,6 +73,9 @@ Every front matter field of `paper.md`, in this order, then two derived fields.
 | `suggestion` | object \| null | `{"action": "keep" \| "skip" \| "later", "reason": string, "by": string, "date": date}` |
 | `path` | string | relative to the library root |
 | `viewed` | bool | Jesse has looked at it in `ruru tui` (only the TUI marks items; the CLI never does) |
+| `relevance` | number \| null | 0–1: how close the item is to the library (TF-IDF cosine to the three nearest papers, less a penalty for resembling skipped titles). null while the library has fewer than 5 papers |
+| `similar_to` | [object] | the nearest library papers, closest first: `{"key", "similarity"}`; empty when unranked |
+| `possible_duplicate_of` | string \| null | a library key, or an earlier inbox id, this item is very likely the same work as (`ruru dupes`) |
 
 | `ruru review --json` (and `review list`) | array of review objects: `new` ones first, then by `--sort` (`created`, newest first, by default; `title`; `papers`, most first); `[]` (exit 2) if none |
 | `ruru review show ID --json` | one review object, with `body` (the Markdown) |

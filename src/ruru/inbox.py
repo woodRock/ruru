@@ -79,7 +79,7 @@ def dumps(item: Item) -> str:
 def loads(text: str, path: Path | None = None) -> Item:
     if not text.startswith("---\n") or "\n---" not in text[3:]:
         raise model.FrontMatterError("inbox item must be a front matter block")
-    fm = yaml.safe_load(text[4:text.index("\n---", 3) + 1]) or {}
+    fm = model.load_yaml(text[4:text.index("\n---", 3) + 1]) or {}
     if not isinstance(fm, dict) or "id" not in fm:
         raise model.FrontMatterError("inbox item needs an id")
     paper = model.from_front_matter({k: v for k, v in fm.items() if k in _PAPER_FIELDS}, body="")
