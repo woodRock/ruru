@@ -62,7 +62,8 @@ def test_a_closed_pipe_is_not_an_error(monkeypatch):
         raise BrokenPipeError()
     redirected = []
     monkeypatch.setattr(os, "dup2", lambda src, dst: redirected.append(dst))  # (not onto pytest's capture file)
-    monkeypatch.setattr(sys.stdout, "fileno", lambda: 99, raising=False)
+    # a stand-in stdout, not a patched fileno on pytest's capture file (pytest ≥ 9.2 reads that fd itself)
+    monkeypatch.setattr(sys, "stdout", argparse.Namespace(fileno=lambda: 99))
     assert cli.dispatch(argparse.Namespace(func=boom)) == cli.OK
     assert redirected == [99]
 
