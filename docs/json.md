@@ -94,7 +94,7 @@ Every front matter field of `paper.md`, in this order, then two derived fields.
 | `by` | string \| null | the agent that wrote it |
 | `path` | string | relative to the library root |
 
-| `ruru project --json` | array of `{"name", "path", "bib", "tex": [string], "bib_encoding": string \| null}` (`path` as written in ruru.toml) |
+| `ruru project --json` | array of `{"name", "path", "bib", "tex": [string], "bib_encoding": string \| null, "bib_path", "tex_paths": [string]}` (`path`, `bib` and `tex` as written in ruru.toml; `bib_path` and `tex_paths` resolved against `path`, absolute when `path` is) |
 | `ruru check TARGET --json` | the check report below; exit 2 if `issue_count` > 0 |
 
 ## Check report
