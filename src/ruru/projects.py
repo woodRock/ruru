@@ -36,11 +36,11 @@ class Project:
 
     @property
     def bib_path(self) -> Path:
-        return self.path / self.bib
+        return self.path / Path(self.bib).expanduser()
 
     @property
     def tex_paths(self) -> list[Path]:
-        return [self.path / t for t in self.tex]
+        return [self.path / Path(t).expanduser() for t in self.tex]
 
     @classmethod
     def from_dict(cls, name: str, d: dict[str, Any]) -> Project:
@@ -58,7 +58,8 @@ class Project:
 
     def to_dict(self, raw_path: str | None = None) -> dict[str, Any]:
         return {"path": raw_path or str(self.path), "bib": self.bib, "tex": self.tex,
-                "bib_encoding": self.bib_encoding}
+                "bib_encoding": self.bib_encoding,
+                "bib_path": str(self.bib_path), "tex_paths": [str(p) for p in self.tex_paths]}
 
 
 def load(settings_projects: dict[str, dict[str, Any]]) -> dict[str, Project]:

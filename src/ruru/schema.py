@@ -93,7 +93,8 @@ DEFS: dict[str, Schema] = {
                         "ids": {"type": "object"}, "title": STR, "year": nullable(INT)},
                        ["id", "decision", "date"]),
     "doctor_check": obj({"name": STR, "status": enum("ok", "warn", "fail"), "detail": STR}),
-    "project": obj({"name": STR, "path": STR, "bib": STR, "tex": STRS, "bib_encoding": nullable(STR)}),
+    "project": obj({"name": STR, "path": STR, "bib": STR, "tex": STRS, "bib_encoding": nullable(STR),
+                    "bib_path": STR, "tex_paths": STRS}),
     "feed": obj({"name": STR, "kind": enum("arxiv", "openalex", "crossref", "rss"), "last_fetch": nullable(DATE)},
                 ["name", "kind", "last_fetch"]),
     "fetch_result": obj({

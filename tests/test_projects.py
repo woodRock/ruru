@@ -128,8 +128,10 @@ def test_project_add_list_remove(lib, run, repo, tmp_path):
     assert run("project", "add", "ja", "--path", "~/Desktop/joint-align", "--bib", "refs.bib",
                "--bib-encoding", "utf8", "-q").out == "ja\n"
     rows = json.loads(run("project", "--json").out)
+    ja = Path("~/Desktop/joint-align").expanduser()
     assert rows[1] == {"name": "ja", "path": "~/Desktop/joint-align", "bib": "refs.bib", "tex": [],
-                       "bib_encoding": "utf8"}
+                       "bib_encoding": "utf8", "bib_path": str(ja / "refs.bib"), "tex_paths": []}
+    assert rows[0]["tex_paths"] == [str(tmp_path / "nowhere" / "m.tex")]  # resolved against path
     assert "~/Desktop/joint-align" in (lib / "ruru.toml").read_text()  # kept as written
     assert run("project", "-q").out.split() == ["ghost", "ja"] and "bib: refs.bib" in run("project", "list").out
     assert run("project", "add", "ja", "--path", "x", "--bib", "y").code == cli.USAGE
