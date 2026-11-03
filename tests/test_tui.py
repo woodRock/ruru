@@ -407,7 +407,11 @@ def test_new_items_are_bold_until_viewed(lib, run, monkeypatch):
         await pilot.pause(0.6)  # resting on the first item marks it
         assert not bold(app, first) and bold(app, second)
         assert "Inbox (4, 3 new)" in str(app.query_one("#tabs").get_tab("inbox").label)
-        await pilot.press("j", "k")  # passing over the second item quickly doesn't
+        # passing over the second item quickly doesn't: the timer only has to outlast the two
+        # keypresses, which can take longer than 0.3 s on a loaded CI runner
+        monkeypatch.setattr(tui_app, "VIEW_SECONDS", 60)
+        await pilot.press("j", "k")
+        monkeypatch.setattr(tui_app, "VIEW_SECONDS", 0.3)
         await pilot.pause(0.6)
         assert bold(app, second)
         await pilot.press("u")  # mark the first new again
